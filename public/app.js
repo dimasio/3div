@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Components, Worlds, SimpleScene, SimpleRenderer, SimpleCamera, FragmentsManager, IfcLoader } from '@thatopen/components';
+import { Components, Worlds, SimpleScene, SimpleRenderer, SimpleCamera, FragmentsManager } from '@thatopen/components';
 
 function showPreloader(message = 'Загрузка модулей...') {
   const preloader = document.getElementById('preloader');
@@ -139,9 +139,10 @@ function initGrid() {
       minWidth: 100
     },
     rowSelection: 'single',
-    pagination: true,
-    paginationPageSize: 25,
-    paginationPageSizeSelector: [25, 50, 100, 200],
+    // pagination отключен - отображаем все элементы сразу
+    pagination: false,
+    paginationPageSize: 1000000,
+    paginationPageSizeSelector: [1000000],
     onRowClicked: (event) => {
       const rowData = event.data;
       if (rowData) {
@@ -172,7 +173,8 @@ async function loadGridData() {
   }
   
   try {
-    const response = await fetch('/api/model/data');
+    // Запрашиваем все элементы без пагинации
+    const response = await fetch('/api/model/data?page=1&pageSize=0');
     const data = await response.json();
     
     if (data.allElements && data.allElements.length > 0) {
@@ -271,191 +273,123 @@ function checkWebGLSupport() {
 }
 
 async function initViewer() {
-  try {
-    const originalError = console.error;
-    
-    console.error = function(...args) {
-      const message = args.join(' ');
-      if (message.includes('WebGL context') || message.includes('Could not create')) {
-        return;
-      }
-      originalError.apply(console, args);
-    };
-    
-    try {
-      console.log('Создаем Components...');
-      components = new Components();
-      
-      console.log('Получаем Worlds...');
-      worlds = components.get(Worlds);
-      
-      console.log('Создаем World...');
-      world = worlds.create();
-      
-      console.log('Создаем сцену...');
-      world.scene = new SimpleScene(components);
-      
-      console.log('Создаем рендерер...');
-      world.renderer = new SimpleRenderer(components, viewerContainer);
-      
-      console.log('Создаем камеру...');
-      world.camera = new SimpleCamera(components);
-      
-      console.log('Добавляем свет...');
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-      dirLight.position.set(10, 10, 10);
-      world.scene.three.add(dirLight);
-      
-      const pointLight = new THREE.PointLight(0xffffff, 0.5);
-      pointLight.position.set(-5, 5, 5);
-      world.scene.three.add(pointLight);
-      
-      console.log('Инициализируем компоненты...');
-      components.init();
-      
-      console.log('Настраиваем камеру...');
-      world.camera.controls.setLookAt(0, 10, 20, 0, 0, 0);
-      
-      console.log('3D-вьювер успешно инициализирован');
-      
-      viewerContainer.innerHTML = `
-        <div class="absolute inset-0 flex flex-col items-center justify-center bg-white/80">
-          <div class="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-          <p class="text-slate-600 font-medium">Загрузка 3D-модели...</p>
-        </div>
-      `;
-      
-      await loadIFCModel();
-      
-      setTimeout(() => {
-        const preloader = viewerContainer.querySelector('.absolute.inset-0.flex');
-        if (preloader) {
-          preloader.style.display = 'none';
-        }
-      }, 100);
-      
-    } catch (error) {
-      console.error = originalError;
-      throw error;
+  const originalError = console.error;
+  
+  console.error = function(...args) {
+    const message = args.join(' ');
+    if (message.includes('WebGL context') || message.includes('Could not create')) {
+      return;
     }
-    
-    console.error = originalError;
+    originalError.apply(console, args);
+  };
+  
+  try {
+    // === НОВЫЙ КОД ИНИЦИАЛИЗАЦИИ ===
+    const container = document.getElementById('viewer-container');
+    if (!container) {
+      console.error("❌ Контейнер #viewer-container не найден!");
+      return;
+    }
+
+    // Очищаем контейнер от текста "3D-вьювер загружается..."
+    container.innerHTML = '';
+
+    components = new Components();
+    worlds = components.get(Worlds);
+
+    world = worlds.create();
+    world.scene = new SimpleScene(components);
+    world.renderer = new SimpleRenderer(components, container);
+    world.camera = new SimpleCamera(components);
+
+    // 1. Инициализация (запуск render loop)
+    components.init();
+
+    // 2. Включаем дефолтную настройку
+    world.scene.setup();
+
+    // 3. ПРИНУДИТЕЛЬНО создаём базовый свет и сетку (если setup() не сработал)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    world.scene.three.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(10, 20, 10);
+    world.scene.three.add(directionalLight);
+
+    const gridHelper = new THREE.GridHelper(50, 50);
+    world.scene.three.add(gridHelper);
+
+    // Делаем этот мир активным (ОБЯЗАТЕЛЬНО ДЛЯ V3.X)
+    world.scene.three.background = new THREE.Color(0xf3f4f6); // Светло-серый фон
+    world.camera.controls.setLookAt(15, 15, 15, 0, 0, 0);
+
+    console.log('3D-вьювер успешно инициализирован');
+
+    // Загружаем модель
+    await loadIFCModel();
     
   } catch (error) {
-    console.error('Ошибка инициализации 3D-вьювера:', error);
-    if (error.message.includes('WebGL') || error.message.includes('context')) {
-      showWebGLInstructions();
-    } else {
-      viewerContainer.innerHTML = `
-        <div class="absolute inset-0 flex items-center justify-center">
-          <div class="text-center text-red-500">
-            <p>Ошибка загрузки 3D-модели: ${error.message}</p>
-          </div>
-        </div>
-      `;
-    }
+    console.error = originalError;
+    throw error;
   }
+  
+  console.error = originalError;
 }
 
 async function loadIFCModel() {
   try {
-    const fragResponse = await fetch('/api/model/fragments');
+    console.log("Скачиваем бинарный файл .frag с сервера...");
+    const response = await fetch('/api/model/fragments');
     
-    if (fragResponse.ok) {
-      console.log('Используем FragmentsManager для загрузки .frag файла...');
-      await loadWithFragmentsManager();
-    } else if (fragResponse.status === 404) {
-      console.log('Файл .frag не найден, используем IfcLoader...');
-      await loadWithIfcLoader();
-    } else {
-      throw new Error(`Ошибка загрузки файла: ${fragResponse.status}`);
-    }
-  } catch (error) {
-    console.error('Ошибка загрузки IFC модели:', error);
+    if (!response.ok) throw new Error(`Файл не найден (статус ${response.status})`);
     
-    viewerContainer.innerHTML = `
-      <div class="absolute inset-0 flex flex-col items-center justify-center">
-        <div class="text-center text-slate-500">
-          <p class="mb-2">Файл не загружен</p>
-          <button id="retry-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">Попробовать снова</button>
-        </div>
-      </div>
-    `;
+    const data = await response.arrayBuffer();
+    const buffer = new Uint8Array(data);
     
-    document.getElementById('retry-btn')?.addEventListener('click', () => {
-      const btn = document.getElementById('retry-btn');
-      if (btn) {
-        btn.parentElement.style.display = 'none';
-      }
-      loadIFCModel();
-    });
-  }
-}
-
-async function loadWithFragmentsManager() {
-  try {
+    console.log("Загружаем геометрию...");
     const fragments = components.get(FragmentsManager);
+    const model = await fragments.load(buffer);
+    
+    // В v3.x model - это FragmentsGroup (наследник THREE.Group)
+    world.scene.three.add(model);
 
-    // Подписываемся на загрузку моделей
-    fragments.onFragmentsLoaded.add(async (model) => {
-      world.scene.three.add(model);
-      // Центрируем камеру
-      if (world.camera && world.camera.controls) {
-        world.camera.controls.fitToSphere(model, true);
-      }
-    });
-
-    // Прямая загрузка бинарного файла
-    const file = await fetch('/api/model/fragments');
-    if (file.ok) {
-      const data = await file.arrayBuffer();
-      const buffer = new Uint8Array(data);
-      
-      // Загружаем фрагменты
-      const model = await fragments.load(buffer);
-      
-      console.log("Модель успешно загружена!");
+    // Для верности добавляем все дочерние меши в сцену напрямую
+    if (model.children && model.children.length > 0) {
+      model.children.forEach(child => world.scene.three.add(child));
     }
-  } catch (e) {
-    console.error("Ошибка загрузки через FragmentsManager:", e);
-    throw e;
-  }
-}
 
-async function loadWithIfcLoader() {
-  try {
-    const response = await fetch('/api/model/file');
-    
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log('Файл не загружен, ожидание...');
-        return;
-      }
-      throw new Error(`Ошибка загрузки файла: ${response.status}`);
+    // Принудительно обновляем матрицы для правильного расчета Bounding Box
+    world.scene.three.updateMatrixWorld(true);
+
+    // Вычисляем реальные границы модели и фокусируем камеру
+    if (world.camera && world.camera.controls) {
+      setTimeout(() => {
+        try {
+          const box = new THREE.Box3().setFromObject(model);
+          
+          // Если коробка валидная (не бесконечная), фокусируемся на ней
+          if (!box.isEmpty()) {
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Отодвигаем камеру на расстояние, чтобы модель влезла в экран
+            world.camera.controls.setLookAt(
+              center.x + maxDim, center.y + maxDim, center.z + maxDim, // Позиция камеры
+              center.x, center.y, center.z, // Куда смотреть
+              true // Анимация
+            );
+          } else {
+            world.camera.controls.fitToSphere(model, true);
+          }
+          console.log("✅ Камера сфокусирована на модели!");
+        } catch (e) {
+          console.log("⚠️ Не удалось сфокусировать камеру:", e.message);
+        }
+      }, 100); // Небольшая пауза для отрисовки
     }
-    
-    const fileBlob = await response.blob();
-    const fileUrl = URL.createObjectURL(fileBlob);
-    
-    const ifcLoader = new IfcLoader(components);
-    
-    ifcLoader.ifcManager.setupWASM({ 
-      path: 'https://esm.sh/@thatopen/components-front@2.4.0/dist/ifc.wasm' 
-    });
-    
-    const model = await ifcLoader.load(fileUrl);
-    
-    console.log('Модель успешно загружена:', model);
-    currentModelId = model.modelID;
-    
-    setTimeout(() => {
-      world.camera.controls.fitView();
-      console.log('3D-сцена готова');
-    }, 100);
-    
   } catch (error) {
-    console.error('Ошибка загрузки через IfcLoader:', error);
-    throw error;
+    console.error("❌ Ошибка загрузки 3D модели:", error);
   }
 }
 
