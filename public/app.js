@@ -1,6 +1,5 @@
-// Импорты из npm пакетов
-import * as THREE from 'three';
-import { Components, FragmentsManager, IfcLoader, SimpleWorld, SimpleScene, SimpleCamera, SimpleRenderer, Worlds } from '@thatopen/components';
+// Используем глобальные переменные (Three.js и @thatopen компоненты загружаются через index.html)
+// window.THREE, window.Components, window.FragmentsManager и т.д. доступны из index.html
 
 // ========== ПРЕЛАДЕР ==========
 function showPreloader(message = 'Загрузка модулей...') {
@@ -175,6 +174,11 @@ async function loadGridData() {
     return;
   }
   
+  if (!gridContainer) {
+    console.error('gridContainer не найден');
+    return;
+  }
+  
   try {
     const response = await fetch('/api/model/data');
     const data = await response.json();
@@ -192,13 +196,19 @@ async function loadGridData() {
       console.log(`✅ Загружено ${rows.length} элементов`);
       
       // Обновляем пустое состояние
-      gridContainer.classList.remove('flex', 'items-center', 'justify-center');
+      if (gridContainer.classList) {
+        gridContainer.classList.remove('flex', 'items-center', 'justify-center');
+      }
     } else {
-      gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-slate-500"><p>Нет данных для отображения</p></div>';
+      if (gridContainer) {
+        gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-slate-500"><p>Нет данных для отображения</p></div>';
+      }
     }
   } catch (err) {
     console.error('Ошибка загрузки данных:', err);
-    gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500"><p>Ошибка загрузки данных</p></div>';
+    if (gridContainer) {
+      gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500"><p>Ошибка загрузки данных</p></div>';
+    }
   }
 }
 
@@ -212,10 +222,12 @@ function highlightElement(elementId) {
     if (fragManager) {
       // Делаем подсветку
       fragManager.highlight({ color: [1, 0.5, 0, 1] }, new Set([elementId]));
-      console.log(`Выделен элемент ID: ${elementId}`);
+      console.log(`✅ Выделен элемент ID: ${elementId}`);
+    } else {
+      console.warn('⚠️ FragmentsManager не найден в components');
     }
   } catch (e) {
-    console.error('Ошибка подсветки:', e);
+    console.error('❌ Ошибка подсветки:', e);
   }
 }
 
@@ -398,6 +410,8 @@ async function loadIFCModel() {
     }
   } catch (error) {
     console.error('Ошибка загрузки IFC модели:', error);
+    
+    // Очищаем контейнер и показываем кнопку повтора
     viewerContainer.innerHTML = `
       <div class="absolute inset-0 flex flex-col items-center justify-center">
         <div class="text-center text-slate-500">
@@ -408,7 +422,10 @@ async function loadIFCModel() {
     `;
     
     document.getElementById('retry-btn')?.addEventListener('click', () => {
-      document.getElementById('retry-btn').parentElement.style.display = 'none';
+      const btn = document.getElementById('retry-btn');
+      if (btn) {
+        btn.parentElement.style.display = 'none';
+      }
       loadIFCModel();
     });
   }

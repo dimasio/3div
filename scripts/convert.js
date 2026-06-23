@@ -27,7 +27,7 @@ const CONFIG = {
   ifcPath: process.argv[2] || join(projectRoot, 'uploads', 'model_1781869108512.ifc'),
   fragOutput: join(projectRoot, 'public', 'model.frag'),
   jsonOutput: join(projectRoot, 'public', 'properties.json'),
-  typesToExtract: ['IfcWall', 'IfcSlab', 'IfcBeam', 'IfcColumn', 'IfcWindow', 'IfcDoor', 'IfcCurtainWall', 'IfcMember', 'IfcPlate', 'IfcFoundation']
+  typesToExtract: ['IfcWall', 'IfcSlab', 'IfcBeam', 'IfcColumn', 'IfcWindow', 'IfcDoor', 'IfcCurtainWall', 'IfcMember', 'IfcPlate', 'IfcFoundation', 'IfcGrid']
 };
 
 /**
@@ -101,13 +101,12 @@ function getAllElementsFiltered(ifcApi, modelId, typesFilter) {
   const typeCounts = new Map();
   const meshData = [];
 
-  // Сначала получаем все линии для построения elementsMap
-  const allLines = ifcApi.GetAllLines(modelId);
-  console.log(`📊 Всего линий в модели: ${allLines.size()}`);
+  // Сначала получаем все линии для построения elementsMap (web-ifc 0.0.77+)
+  const allLines = [...ifcApi.GetAllLines(modelId)];
+  console.log(`📊 Всего линий в модели: ${allLines.length}`);
 
   let count = 0;
-  for (let i = 0; i < allLines.size(); i++) {
-    const expressId = allLines.get(i);
+  for (const expressId of allLines) {
     const elementData = ifcApi.GetLine(modelId, expressId);
 
     if (elementData?.type !== -1) {
@@ -206,52 +205,71 @@ async function convertIFCToFragments() {
   console.log(`✅ Найдено элементов: ${elementsMap.size}`);
   console.log(`✅ Извлечено геометрий: ${meshData.length}`);
 
-  console.log('\n📦 Извлечение данных из элементов...');
+   console.log('\n📦 Извлечение данных из элементов...');
 
-  // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Строим карту свойств ОДИН РАЗ перед циклом (O(n) вместо O(n²))
-  const propertiesMap = buildPropertiesMap(ifcApi, modelId);
-  console.log(`📊 Построена карта свойств: ${propertiesMap.size} элементов с данными`);
+   // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Строим карту свойств ОДИН РАЗ перед циклом (O(n) вместо O(n²))
+   const propertiesMap = buildPropertiesMap(ifcApi, modelId);
+   console.log(`📊 Построена карта свойств: ${propertiesMap.size} элементов с данными`);
 
-  const propertiesData = [];
-  const geometryData = [];
-  let processed = 0;
-  let elementsWithGeometry = 0;
+   const propertiesData = [];
+   const geometryData = [];
+   let processed = 0;
+   let elementsWithGeometry = 0;
 
-  for (const mesh of meshData) {
-    const element = elementsMap.get(mesh.expressID) || {
-      id: mesh.expressID,
-      type: 'Unknown',
-      typeId: 0,
-      name: 'Без имени'
-    };
+   // Сначала обрабатываем элементы с геометрией
+   for (const mesh of meshData) {
+     const element = elementsMap.get(mesh.expressID) || {
+       id: mesh.expressID,
+       type: 'Unknown',
+       typeId: 0,
+       name: 'Без имени'
+     };
 
-    // Используем предварительно построенную карту свойств
-    const position = extractPosition(ifcApi, modelId, mesh.expressID);
-    const properties = propertiesMap.get(mesh.expressID) || {};
+     // Используем предварительно построенную карту свойств
+     const position = extractPosition(ifcApi, modelId, mesh.expressID);
+     const properties = propertiesMap.get(mesh.expressID) || {};
 
-    propertiesData.push({
-      id: mesh.expressID,
-      type: element.type,
-      name: element.name || 'Без имени',
-      position: position,
-      properties: properties
-    });
+     propertiesData.push({
+       id: mesh.expressID,
+       type: element.type,
+       name: element.name || 'Без имени',
+       position: position,
+       properties: properties
+     });
 
-    geometryData.push({
-      id: mesh.expressID,
-      vertices: mesh.vertices,
-      faces: mesh.faces
-    });
-    elementsWithGeometry++;
+     geometryData.push({
+       id: mesh.expressID,
+       vertices: mesh.vertices,
+       faces: mesh.faces
+     });
+     elementsWithGeometry++;
 
-    processed++;
-    if (processed % 1000 === 0) {
-      console.log(`   Извлечено: ${processed}/${meshData.length}...`);
-    }
-  }
+     processed++;
+     if (processed % 1000 === 0) {
+       console.log(`   Извлечено: ${processed}/${meshData.length}...`);
+     }
+   }
 
-  console.log(`✅ Извлечено данных: ${propertiesData.length}`);
-  console.log(`✅ Элементов с геометрией: ${elementsWithGeometry}`);
+   // Добавляем элементы без геометрии (например IfcGrid)
+   for (const [expressId, element] of elementsMap) {
+     if (!meshData.some(m => m.expressID === expressId)) {
+       // Элемент без геометрии
+       const position = extractPosition(ifcApi, modelId, expressId);
+       const properties = propertiesMap.get(expressId) || {};
+
+       propertiesData.push({
+         id: expressId,
+         type: element.type,
+         name: element.name || 'Без имени',
+         position: position,
+         properties: properties
+       });
+     }
+   }
+
+   console.log(`✅ Извлечено данных: ${propertiesData.length}`);
+   console.log(`✅ Элементов с геометрией: ${elementsWithGeometry}`);
+   console.log(`✅ Всего элементов для properties.json: ${propertiesData.length}`);
 
   // Сохраняем properties.json
   console.log(`\n💾 Сохранение свойств в ${CONFIG.jsonOutput}...`);

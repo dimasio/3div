@@ -16,7 +16,7 @@ const __dirname = dirname(__filename);
  * @returns {Promise<IfcAPI>} API для работы с IFC
  */
 export async function initIfcAPI() {
-  const projectRoot = join(__dirname, '..');
+  const projectRoot = join(__dirname, '..', '..');
   const wasmPath = join(projectRoot, 'node_modules', 'web-ifc', 'web-ifc-node.wasm');
   const wasmUrl = 'file://' + wasmPath;
 
@@ -40,18 +40,24 @@ export function buildPropertiesMap(ifcApi, modelId) {
   const propertiesMap = new Map();
 
   try {
-    // Получаем все связи "IsDefinedBy" (IfcRelDefinesByProperties)
-    const defines = ifcApi.GetByType(modelId, 23);
+    // Получаем все линии модели
+    const allLines = [...ifcApi.GetAllLines(modelId)];
 
-    for (let i = 0; i < defines.size(); i++) {
-      const relationId = defines.get(i);
-      const relation = ifcApi.GetLine(modelId, relationId);
-
-      if (!relation || !relation.RelatedObjects || !relation.RelatingPropertyDefinition) {
+    for (const expressId of allLines) {
+      const element = ifcApi.GetLine(modelId, expressId);
+      
+      // Проверяем тип элемента - это IfcRelDefinesByProperties (код 23)
+      // Но в web-ifc 0.0.77 тип кода другой, поэтому проверяем по имени
+      const typeName = ifcApi.GetNameFromTypeCode(element.type);
+      if (typeName !== 'IfcRelDefinesByProperties') {
         continue;
       }
 
-      const propertySet = relation.RelatingPropertyDefinition;
+      if (!element.RelatedObjects || !element.RelatingPropertyDefinition) {
+        continue;
+      }
+
+      const propertySet = element.RelatingPropertyDefinition;
       if (!propertySet.HasProperties) {
         continue;
       }
@@ -59,17 +65,17 @@ export function buildPropertiesMap(ifcApi, modelId) {
       const setName = propertySet.Name?.value || 'Unnamed';
 
       // Для каждого объекта в этой связи
-      for (let j = 0; j < relation.RelatedObjects.length; j++) {
-        const relatedObject = relation.RelatedObjects[j];
-        const expressId = relatedObject.oid;
+      for (let j = 0; j < element.RelatedObjects.length; j++) {
+        const relatedObject = element.RelatedObjects[j];
+        const relatedExpressId = relatedObject.oid;
 
-        if (!expressId) continue;
+        if (!relatedExpressId) continue;
 
         // Получаем текущие свойства или создаем новые
-        let elementProps = propertiesMap.get(expressId);
+        let elementProps = propertiesMap.get(relatedExpressId);
         if (!elementProps) {
           elementProps = {};
-          propertiesMap.set(expressId, elementProps);
+          propertiesMap.set(relatedExpressId, elementProps);
         }
 
         // Добавляем свойства из PropertySet

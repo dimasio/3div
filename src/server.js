@@ -94,6 +94,12 @@ setTimeout(async () => {
           const uploadPath = join(UPLOADS_DIR, lastUploadedFile);
           const fs = await import('fs');
           fs.writeFileSync(uploadPath, fs.readFileSync(filePath, 'utf8'));
+          
+          // Сохраняем свойства в properties.json при инициализации
+          const propertiesPath = join(__dirname, '../public/properties.json');
+          writeFileSync(propertiesPath, JSON.stringify(cachedElements, null, 2), 'utf8');
+          console.log(`✅ Свойства сохранены в: ${propertiesPath}`);
+          
           console.log(`✅ Стартовый файл загружен: ${cachedElementsCount} элементов`);
           break;
         } catch (e) {
@@ -163,6 +169,15 @@ app.post('/api/upload', async (req, res) => {
     console.log(`   Структурных элементов: ${result.structuralElements.length}`);
     console.log(`   Подложек: ${result.underlays.length}`);
     console.log(`   Всего элементов: ${cachedElementsCount}`);
+
+    // Сохраняем свойства в properties.json
+    const propertiesPath = join(__dirname, '../public/properties.json');
+    try {
+      writeFileSync(propertiesPath, JSON.stringify(cachedElements, null, 2), 'utf8');
+      console.log(`✅ Свойства сохранены в: ${propertiesPath}`);
+    } catch (err) {
+      console.error(`❌ Ошибка сохранения properties.json: ${err.message}`);
+    }
 
     res.json({ 
       success: true,

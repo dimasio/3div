@@ -24,14 +24,13 @@ function getAllElements(ifcAPI, modelId, maxElements = 0) {
   const typeCounts = new Map();
 
   try {
-    // Получаем все линии модели
-    const allLines = ifcAPI.GetAllLines(modelId);
+    // Получаем все линии модели (web-ifc 0.0.77+ возвращает итерируемый объект)
+    const allLines = [...ifcAPI.GetAllLines(modelId)];
 
-    console.log(`📊 Всего линий в модели: ${allLines.size()}`);
+    console.log(`📊 Всего линий в модели: ${allLines.length}`);
 
     let count = 0;
-    for (let i = 0; i < allLines.size(); i++) {
-      const expressId = allLines.get(i);
+    for (const expressId of allLines) {
       const elementData = ifcAPI.GetLine(modelId, expressId);
 
       if (elementData && elementData.type !== -1) {
