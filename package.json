@@ -1,0 +1,34 @@
+{
+  "name": "ifc-extractor",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Node.js library for extracting structural elements and underlays from IFC models",
+  "main": "src/lib/ifcExtractor.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "vite": "vite",
+    "build": "vite build"
+  },
+  "keywords": [
+    "ifc",
+    "bim",
+    "parcing",
+    "structure"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^2.3.0",
+    "express": "^5.2.1",
+    "web-ifc": "^0.0.77"
+  },
+  "devDependencies": {
+    "@thatopen/components": "^3.2.0",
+    "@thatopen/components-front": "^3.2.0",
+    "@thatopen/fragments": "~3.2.0",
+    "@types/node": "^22.10.5",
+    "three": "^0.184.0",
+    "vite": "^5.4.21"
+  }
+}

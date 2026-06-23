@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IFC Viewer MVP</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- ag-Grid styles -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-alpine.css">
+  
+  <!-- Глобальный скрипт для ag-Grid (создает agGrid глобальный объект) -->
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.1.1/dist/ag-grid-community.min.js"></script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f3f4f6;
+    }
+    
+    .ag-theme-alpine .ag-header-cell {
+      background: #f9fafb;
+    }
+    
+    .ag-theme-alpine .ag-row:hover {
+      background-color: #f3f4f6 !important;
+    }
+    
+    .ag-theme-alpine .ag-cell-focus {
+      border: 2px solid #3b82f6 !important;
+    }
+    
+    .ag-theme-alpine .ag-header-cell-text {
+      font-weight: 600;
+      color: #374151;
+    }
+    
+    .ag-theme-alpine .ag-row-selected {
+      background-color: #dbeafe !important;
+    }
+    
+    .ag-theme-alpine .ag-cell-highlight {
+      background-color: #fcd34d !important;
+    }
+    
+    /* Прелоадер */
+    #preloader {
+      position: fixed;
+      inset: 0;
+      background: #1e293b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.3s ease;
+    }
+    
+    #preloader.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .preloader-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(255,255,255,0.1);
+      border-top: 4px solid #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .preloader-text {
+      color: white;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    
+    .preloader-progress {
+      margin-top: 15px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Прелоадер -->
+  <div id="preloader">
+    <div class="preloader-spinner"></div>
+    <div class="preloader-text" id="preloader-text">Загрузка модулей...</div>
+    <div class="preloader-progress" id="preloader-progress"></div>
+  </div>
+  
+  <!-- Заголовок -->
+  <header class="bg-slate-900 text-white px-6 py-4 shadow-md flex justify-between items-center">
+    <h1 class="text-xl font-semibold">🏗️ IFC Viewer MVP</h1>
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input type="file" id="file-input" accept=".ifc" class="hidden">
+      <button type="button" id="upload-btn" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition">📁 Загрузить файл</button>
+    </label>
+  </header>
+
+  <!-- Основной контент: две колонки -->
+  <div class="flex h-[calc(100vh-80px)] overflow-hidden">
+    <!-- Левая колонка: 3D-вьювер -->
+    <div class="w-1/2 h-full bg-white border-r border-slate-200 flex flex-col">
+      <div class="px-4 py-2 border-b border-slate-200 bg-slate-50">
+        <h2 class="text-sm font-medium text-slate-700">3D-модель</h2>
+      </div>
+      <div id="viewer-container" class="flex-1 w-full h-full relative bg-slate-100">
+        <div class="absolute inset-0 flex items-center justify-center">
+          <div class="text-center text-slate-500">
+            <div class="text-6xl mb-2">👁️</div>
+            <p>3D-вьювер загружается...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Правая колонка: Таблица данных -->
+    <div class="w-1/2 h-full bg-white flex flex-col">
+      <div class="px-4 py-2 border-b border-slate-200 bg-slate-50">
+        <h2 class="text-sm font-medium text-slate-700">Метаданные</h2>
+      </div>
+      <div id="grid-container" class="ag-theme-alpine flex-1 w-full h-full"></div>
+    </div>
+  </div>
+
+  <!-- Модуль для приложения -->
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
