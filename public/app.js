@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Components, Worlds, SimpleScene, SimpleRenderer, SimpleCamera, FragmentsManager, IfcLoader } from '@thatopen/components';
-import { Fragments } from '@thatopen/fragments';
 
 function showPreloader(message = 'Загрузка модулей...') {
   const preloader = document.getElementById('preloader');
@@ -395,36 +394,31 @@ async function loadIFCModel() {
 
 async function loadWithFragmentsManager() {
   try {
-    const fragPath = '/api/model/fragments';
-    const propertiesPath = '/api/model/properties';
-    
-    const propertiesResponse = await fetch(propertiesPath);
-    let propertiesData = [];
-    if (propertiesResponse.ok) {
-      propertiesData = await propertiesResponse.json();
-    }
-    
-    const fragManager = new FragmentsManager(components);
-    await fragManager.init(new URL('./worker.mjs', import.meta.url).href);
-    
-    const fragData = await fetch(fragPath);
-    const arrayBuffer = await fragData.arrayBuffer();
-    
-    const model = await fragManager.core.load(arrayBuffer, {
-      modelId: 'model'
+    const fragments = components.get(FragmentsManager);
+
+    // Подписываемся на загрузку моделей
+    fragments.onFragmentsLoaded.add(async (model) => {
+      world.scene.three.add(model);
+      // Центрируем камеру
+      if (world.camera && world.camera.controls) {
+        world.camera.controls.fitToSphere(model, true);
+      }
     });
-    
-    console.log('Модель успешно загружена через FragmentsManager');
-    console.log('Model ID:', model.modelId);
-    
-    const sphere = new THREE.Sphere();
-    model.box.getBoundingSphere(sphere);
-    await world.camera.controls.fitToSphere(sphere, true);
-    console.log('3D-сцена готова');
-    
-  } catch (error) {
-    console.error('Ошибка загрузки через FragmentsManager:', error);
-    throw error;
+
+    // Прямая загрузка бинарного файла
+    const file = await fetch('/api/model/fragments');
+    if (file.ok) {
+      const data = await file.arrayBuffer();
+      const buffer = new Uint8Array(data);
+      
+      // Загружаем фрагменты
+      const model = await fragments.load(buffer);
+      
+      console.log("Модель успешно загружена!");
+    }
+  } catch (e) {
+    console.error("Ошибка загрузки через FragmentsManager:", e);
+    throw e;
   }
 }
 
@@ -446,7 +440,7 @@ async function loadWithIfcLoader() {
     const ifcLoader = new IfcLoader(components);
     
     ifcLoader.ifcManager.setupWASM({ 
-      path: 'https://unpkg.com/@thatopen/components-front@3.4.6/dist/ifc.wasm' 
+      path: 'https://esm.sh/@thatopen/components-front@2.4.0/dist/ifc.wasm' 
     });
     
     const model = await ifcLoader.load(fileUrl);

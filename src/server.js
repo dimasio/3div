@@ -94,16 +94,6 @@ app.use(bodyParser.json({ limit: '200mb', strict: false }));
 app.use(bodyParser.text({ limit: '200mb', type: 'text/plain' }));
 app.use(express.static(join(__dirname, '../public')));
 
-app.get('/worker.mjs', (req, res) => {
-  const filePath = join(__dirname, '../public/worker.mjs');
-  if (existsSync(filePath)) {
-    res.setHeader('Content-Type', 'application/javascript');
-    res.sendFile(filePath);
-  } else {
-    res.status(404).json({ error: 'Worker файл не найден' });
-  }
-});
-
 app.get('/', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));
 });
