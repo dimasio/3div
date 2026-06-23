@@ -153,7 +153,14 @@ app.get('/api/model/file', (req, res) => {
 
 app.get('/api/model/data', (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const pageSize = parseInt(req.query.pageSize) || 50;
+  let pageSize = req.query.pageSize;
+  
+  // Обработка специального значения "Все" - отображаем все элементы на одной странице
+  if (pageSize === 'Все') {
+    pageSize = cachedElementsCount || 1000000;
+  } else {
+    pageSize = parseInt(pageSize) || 50;
+  }
   
   if (!cachedElements) {
     res.json({ 
@@ -162,6 +169,18 @@ app.get('/api/model/data', (req, res) => {
       page, 
       pageSize,
       totalPages: 0
+    });
+    return;
+  }
+  
+  // Если pageSize достаточно большой, возвращаем все элементы
+  if (pageSize >= cachedElementsCount) {
+    res.json({ 
+      allElements: cachedElements,
+      total: cachedElementsCount,
+      page: 1,
+      pageSize: cachedElementsCount,
+      totalPages: 1
     });
     return;
   }

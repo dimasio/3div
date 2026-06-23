@@ -101,6 +101,9 @@ let dataRows = [];
 let gridApi = null;
 let gridOptions = null;
 let currentModelId = null;
+let isPaginationLoading = false;
+let isChangingPageSize = false;
+let resetCameraBtn = null;
 
 const columnDefs = [
   {
@@ -139,14 +142,28 @@ function initGrid() {
       minWidth: 100
     },
     rowSelection: 'single',
-    // pagination отключен - отображаем все элементы сразу
-    pagination: false,
-    paginationPageSize: 1000000,
-    paginationPageSizeSelector: [1000000],
+    pagination: true,
+    paginationPageSize: 50,
+    paginationPageSizeSelector: [10, 20, 50, 100, 200, 500, 1000, 'Все'],
     onRowClicked: (event) => {
       const rowData = event.data;
       if (rowData) {
         highlightElement(rowData.id);
+      }
+    },
+        onPaginationChanged: (event) => {
+      // При изменении размера страницы обновляем только pageSize без повторной загрузки данных
+      if (gridApi && !isPaginationLoading && !isChangingPageSize) {
+        isChangingPageSize = true;
+        
+        const pageSize = gridApi.paginationGetPageSize();
+        if (pageSize) {
+          gridApi.updateGridOptions({ paginationPageSize: pageSize });
+        }
+        
+        setTimeout(() => {
+          isChangingPageSize = false;
+        }, 0);
       }
     }
   };
@@ -161,6 +178,45 @@ function initGrid() {
   loadGridData();
 }
 
+async function loadGridDataForPage(page, pageSize) {
+  if (!gridApi) {
+    console.error('gridApi не инициализирован');
+    return;
+  }
+  
+  if (!gridContainer) {
+    console.error('gridContainer не найден');
+    return;
+  }
+  
+  try {
+    isPaginationLoading = true;
+    
+    const response = await fetch(`/api/model/data?page=${page}&pageSize=${pageSize}`);
+    const data = await response.json();
+    
+    if (data.allElements && data.allElements.length > 0) {
+      const rows = data.allElements.map(el => ({
+        id: el.id,
+        type: el.type,
+        name: el.name || 'Без имени'
+      }));
+      
+      dataRows = rows;
+      gridApi.updateGridOptions({ rowData: rows, paginationPageSize: pageSize });
+      
+      console.log(`Загружено ${rows.length} элементов (страница ${page})`);
+    }
+    
+    setTimeout(() => {
+      isPaginationLoading = false;
+    }, 0);
+  } catch (err) {
+    isPaginationLoading = false;
+    console.error('Ошибка загрузки данных страницы:', err);
+  }
+}
+
 async function loadGridData() {
   if (!gridApi) {
     console.error('gridApi не инициализирован');
@@ -173,8 +229,13 @@ async function loadGridData() {
   }
   
   try {
-    // Запрашиваем все элементы без пагинации
-    const response = await fetch('/api/model/data?page=1&pageSize=0');
+    // При первой загрузке загружаем все элементы (pageSize = 'Все')
+    isPaginationLoading = true;
+    const currentPage = 1;
+    const fetchPageSize = 'Все';
+    
+    // Запрашиваем элементы для отображения (с пагинацией)
+    const response = await fetch(`/api/model/data?page=${currentPage}&pageSize=${fetchPageSize}`);
     const data = await response.json();
     
     if (data.allElements && data.allElements.length > 0) {
@@ -185,9 +246,9 @@ async function loadGridData() {
       }));
       
       dataRows = rows;
-      gridApi.updateGridOptions({ rowData: rows });
+      gridApi.updateGridOptions({ rowData: rows, paginationPageSize: rows.length });
       
-      console.log(`Загружено ${rows.length} элементов`);
+      console.log(`Загружено ${rows.length} элементов (страница ${currentPage})`);
       
       if (gridContainer.classList) {
         gridContainer.classList.remove('flex', 'items-center', 'justify-center');
@@ -202,6 +263,10 @@ async function loadGridData() {
     if (gridContainer) {
       gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500"><p>Ошибка загрузки данных</p></div>';
     }
+  } finally {
+    setTimeout(() => {
+      isPaginationLoading = false;
+    }, 0);
   }
 }
 
@@ -445,6 +510,25 @@ fileInput.addEventListener('change', (e) => {
     fileInput.value = '';
   }
 });
+
+// Обработчик кнопки сброса камеры
+resetCameraBtn = document.getElementById('reset-camera-btn');
+if (resetCameraBtn) {
+  resetCameraBtn.addEventListener('click', () => {
+    resetCamera();
+  });
+}
+
+function resetCamera() {
+  if (!world || !world.camera || !world.camera.controls) {
+    console.warn('Камера не инициализирована');
+    return;
+  }
+  
+  // Возвращаем камеру к начальной позиции (15, 15, 15) смотрит на (0, 0, 0)
+  world.camera.controls.setLookAt(15, 15, 15, 0, 0, 0, true);
+  console.log('Камера сброшена на начальную позицию');
+}
 
 window.addEventListener('load', async () => {
   showPreloader('Загрузка модулей...');

@@ -118,7 +118,7 @@ async function extractIfc(filePath) {
   const structuralElements = [];
   const underlays = [];
 
-  const elementsMap = getAllElements(ifcAPI, modelId, 10000);
+  const elementsMap = getAllElements(ifcAPI, modelId, 0);
 
   const propertiesMap = buildPropertiesMap(ifcAPI, modelId);
 
