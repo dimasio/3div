@@ -112,7 +112,7 @@ setTimeout(async () => {
 // Мидлвары с увеличенным лимитом для больших IFC файлов
 app.use(bodyParser.json({ limit: '200mb', strict: false }));
 app.use(bodyParser.text({ limit: '200mb', type: 'text/plain' }));
-app.use(express.static(join(__dirname, '../dist')));
+app.use(express.static(join(__dirname, '../public')));
 
 // Отдача worker.mjs с правильным Content-Type
 app.get('/worker.mjs', (req, res) => {
@@ -129,7 +129,7 @@ app.get('/worker.mjs', (req, res) => {
  * GET / - Отдача index.html
  */
 app.get('/', (req, res) => {
-  res.sendFile(join(__dirname, '../dist/index.html'));
+  res.sendFile(join(__dirname, '../public/index.html'));
 });
 
 /**
