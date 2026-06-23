@@ -1,32 +1,23 @@
-const { extractIFC } = require('./lib/ifcExtractor.js');
-
-/**
- * Тестовый скрипт для проверки работы IFC-парсера
- * 
- * Usage:
- *   node src/index.js [path-to-ifc-file]
- * 
- * Если путь не указан, будет использован путь по умолчанию
- */
+const { extractIfc } = require('./lib/ifcExtractor.js');
 
 async function main() {
   const filePath = process.argv[2] || 'test.ifc';
 
-  console.log(`🚀 Запуск парсера IFC файла: ${filePath}`);
+  console.log(`Запуск парсера IFC файла: ${filePath}`);
   console.log('');
 
   try {
-    const result = await extractIFC(filePath);
+    const result = await extractIfc(filePath);
 
-    console.log('✅ Парсинг завершен успешно!');
+    console.log('Парсинг завершен успешно!');
     console.log('');
-    console.log('📊 Результаты:');
+    console.log('Результаты:');
     console.log(`   Конструктивные элементы: ${result.structuralElements.length}`);
     console.log(`   Подложки: ${result.underlays.length}`);
     console.log('');
 
     if (result.structuralElements.length > 0) {
-      console.log('🏗️  Конструктивные элементы:');
+      console.log('Конструктивные элементы:');
       result.structuralElements.forEach((el, index) => {
         console.log(`   ${index + 1}. [${el.type}] ${el.name} (ID: ${el.id})`);
         if (el.position) {
@@ -40,26 +31,25 @@ async function main() {
 
     if (result.underlays.length > 0) {
       console.log('');
-      console.log('🕸️  Подложки:');
+      console.log('Подложки:');
       result.underlays.forEach((el, index) => {
         console.log(`   ${index + 1}. [${el.type}] ${el.name} (ID: ${el.id})`);
       });
     }
 
     console.log('');
-    console.log('💾 Данные сохранены в result.json');
+    console.log('Данные сохранены в result.json');
     
-    // Сохраняем результат в файл
     const fs = require('fs');
     fs.writeFileSync('result.json', JSON.stringify(result, null, 2));
 
   } catch (error) {
-    console.error('❌ Ошибка при парсинге файла:');
+    console.error('Ошибка при парсинге файла:');
     console.error(error.message);
     
     if (error.message.includes('Cannot find module')) {
       console.error('');
-      console.error('💡 Попробуйте указать путь к IFC-файлу:');
+      console.error('Попробуйте указать путь к IFC-файлу:');
       console.error('   node src/index.js path/to/file.ifc');
     }
     

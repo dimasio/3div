@@ -12,10 +12,9 @@
   "keywords": [
     "ifc",
     "bim",
-    "parcing",
+    "parsing",
     "structure"
   ],
-  "author": "",
   "license": "ISC",
   "dependencies": {
     "body-parser": "^2.3.0",
