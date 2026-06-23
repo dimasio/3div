@@ -1,5 +1,7 @@
-// Используем глобальные переменные (Three.js и @thatopen компоненты загружаются через index.html)
-// window.THREE, window.Components, window.FragmentsManager и т.д. доступны из index.html
+// Импорты для ES-модулей
+import * as THREE from 'three';
+import { Components, Worlds, SimpleScene, SimpleRenderer, SimpleCamera, FragmentsManager, IfcLoader } from '@thatopen/components';
+import { Fragments } from '@thatopen/fragments';
 
 // ========== ПРЕЛАДЕР ==========
 function showPreloader(message = 'Загрузка модулей...') {

@@ -15,15 +15,6 @@
   <!-- Глобальный скрипт для ag-Grid (создает agGrid глобальный объект) -->
   <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.1.1/dist/ag-grid-community.min.js"></script>
   
-  <!-- Three.js -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.min.js"></script>
-  
-  <!-- @thatopen/fragments -->
-  <script src="https://cdn.jsdelivr.net/npm/@thatopen/fragments@3.2.0/dist/index.min.js"></script>
-  
-  <!-- @thatopen/components -->
-  <script src="https://cdn.jsdelivr.net/npm/@thatopen/components@3.2.0/dist/index.min.js"></script>
-  
   <style>
     * {
       margin: 0;
@@ -150,27 +141,6 @@
     </div>
   </div>
 
-  <!-- Глобальные переменные для ThatOpen - до загрузки app.js -->
-  <script>
-    // Three.js
-    window.THREE = THREE;
-    
-    // @thatopen/fragments
-    window.Fragments = Fragments;
-    
-    // @thatopen/components
-    window.Components = Components;
-    window.FragmentsManager = FragmentsManager;
-    window.IfcLoader = IfcLoader;
-    window.SimpleWorld = SimpleWorld;
-    window.SimpleScene = SimpleScene;
-    window.SimpleCamera = SimpleCamera;
-    window.SimpleRenderer = SimpleRenderer;
-    window.SimpleGrid = SimpleGrid;
-    window.Worlds = Worlds;
-    window.DataMap = DataMap;
-  </script>
-  
   <!-- Модуль для приложения -->
   <script type="module" src="/app.js"></script>
 </body>
