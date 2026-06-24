@@ -1,8 +1,9 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync } from 'fs';
 import bodyParser from 'body-parser';
+import multer from 'multer';
 import { extractIfc } from './lib/ifcExtractor.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +14,17 @@ const PORT = process.env.PORT || 3000;
 
 const UPLOADS_DIR = join(__dirname, '../uploads');
 mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Multer disk storage - файлы сохраняются напрямую на диск без загрузки в память
+const upload = multer({
+  dest: UPLOADS_DIR,
+  limits: {
+    fileSize: 200 * 1024 * 1024 // 200MB limit
+  },
+  filename: (req, file, cb) => {
+    cb(null, `model_${Date.now()}.ifc`);
+  }
+});
 
 let lastUploadedFile = null;
 let lastFragFile = null;
@@ -36,7 +48,6 @@ async function loadPropertiesFromJson() {
     
     return true;
   } catch (e) {
-    console.error('Ошибка загрузки properties.json:', e.message);
     return false;
   }
 }
@@ -51,89 +62,34 @@ async function loadPropertiesFromFrag() {
   return true;
 }
 
-setTimeout(async () => {
-  const loadedFromJson = await loadPropertiesFromJson();
-  
-  if (!loadedFromJson) {
-    const possiblePaths = [
-      join(__dirname, '../test.ifc'),
-      join(__dirname, '../small_test.ifc'),
-      join(__dirname, '../public/test.ifc'),
-      join(__dirname, '../uploads/model_1781855600689.ifc')
-    ];
-    
-    for (const filePath of possiblePaths) {
-      if (existsSync(filePath)) {
-        try {
-          const result = await extractIfc(filePath);
-          cachedElements = [
-            ...result.structuralElements,
-            ...result.underlays
-          ];
-          cachedElementsCount = cachedElements.length;
-          lastUploadedFile = `model_${Date.now()}.ifc`;
-          const uploadPath = join(UPLOADS_DIR, lastUploadedFile);
-          writeFileSync(uploadPath, readFileSync(filePath, 'utf8'));
-          
-          const propertiesPath = join(__dirname, '../public/properties.json');
-          writeFileSync(propertiesPath, JSON.stringify(cachedElements, null, 2), 'utf8');
-          
-          break;
-        } catch (e) {
-        }
-      }
-    }
-  }
-  
-  if (!cachedElements) {
-    await loadPropertiesFromFrag();
-  }
-}, 100);
-
+// JSON body parser для остальных API endpoints (без text/plain!)
 app.use(bodyParser.json({ limit: '200mb', strict: false }));
-app.use(bodyParser.text({ limit: '200mb', type: 'text/plain' }));
 app.use(express.static(join(__dirname, '../public')));
+app.use('/node_modules/', express.static(join(__dirname, '../node_modules')));
 
 app.get('/', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));
 });
 
-app.post('/api/upload', async (req, res) => {
+// POST /api/upload - только сохраняет файл (быстрый, без конвертации)
+app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
-    const fileContent = req.body;
-    
-    if (!fileContent || fileContent.length === 0) {
+    if (!req.file) {
       res.status(400).json({ error: 'Файл не был загружен' });
       return;
     }
 
-    const fileName = `model_${Date.now()}.ifc`;
-    const filePath = join(UPLOADS_DIR, fileName);
-    writeFileSync(filePath, fileContent, 'utf8');
-    lastUploadedFile = fileName;
-
-    const result = await extractIfc(filePath);
-    
-    cachedElements = [
-      ...result.structuralElements,
-      ...result.underlays
-    ];
-    cachedElementsCount = cachedElements.length;
-
-    const propertiesPath = join(__dirname, '../public/properties.json');
-    try {
-      writeFileSync(propertiesPath, JSON.stringify(cachedElements, null, 2), 'utf8');
-    } catch (err) {
-      console.error('Ошибка сохранения properties.json:', err.message);
-    }
+    // req.file содержит: { filename, path, size, mimetype, ... }
+    lastUploadedFile = req.file.filename;
 
     res.json({ 
       success: true,
-      structuralElements: result.structuralElements,
-      underlays: result.underlays
+      fileName: req.file.filename,
+      fileSize: req.file.size
     });
 
   } catch (error) {
+    console.error('Ошибка загрузки файла');
     res.status(500).json({ 
       error: 'Ошибка при обработке файла',
       details: error.message 
@@ -155,11 +111,13 @@ app.get('/api/model/data', (req, res) => {
   const page = parseInt(req.query.page) || 1;
   let pageSize = req.query.pageSize;
   
-  // Обработка специального значения "Все" - отображаем все элементы на одной странице
-  if (pageSize === 'Все') {
-    pageSize = cachedElementsCount || 1000000;
+  // Ограничить pageSize для производительности (убрано значение "Все")
+  if (pageSize) {
+    pageSize = parseInt(pageSize);
+    if (isNaN(pageSize) || pageSize <= 0) pageSize = 50;
+    if (pageSize > 1000) pageSize = 1000; // Максимум 1000 элементов на страницу
   } else {
-    pageSize = parseInt(pageSize) || 50;
+    pageSize = 50;
   }
   
   if (!cachedElements) {
@@ -169,18 +127,6 @@ app.get('/api/model/data', (req, res) => {
       page, 
       pageSize,
       totalPages: 0
-    });
-    return;
-  }
-  
-  // Если pageSize достаточно большой, возвращаем все элементы
-  if (pageSize >= cachedElementsCount) {
-    res.json({ 
-      allElements: cachedElements,
-      total: cachedElementsCount,
-      page: 1,
-      pageSize: cachedElementsCount,
-      totalPages: 1
     });
     return;
   }
@@ -211,6 +157,7 @@ app.get('/api/model/all-data', (req, res) => {
 app.get('/api/model/fragments', (req, res) => {
   const filePath = join(__dirname, '../public/model.frag');
   if (existsSync(filePath)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.sendFile(filePath);
   } else {
     res.status(404).json({ error: 'Файл фрагментов не найден' });
@@ -274,6 +221,10 @@ app.post('/api/convert', async (req, res) => {
   }
 });
 
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 app.use((req, res) => {
   res.status(404).json({ error: 'Страница не найдена' });
 });
@@ -286,6 +237,22 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+let server = null;
+
+function gracefulShutdown() {
+  console.log('Получен сигнал остановки, завершение работы...');
+  if (server) {
+    server.close(() => {
+      console.log('Сервер остановлен');
+      process.exit(0);
+    });
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+server = app.listen(PORT, () => {
 });

@@ -1,32 +1,25 @@
 {
-  "name": "ifc-extractor",
+  "name": "3div",
   "type": "module",
   "version": "1.0.0",
-  "description": "Node.js library for extracting structural elements and underlays from IFC models",
+  "description": "IFC viewer and 3D extraction tool",
   "main": "src/lib/ifcExtractor.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
-    "test:integration": "vitest run tests/integration.test.js"
+    "convert": "node scripts/convert.js"
   },
   "keywords": [
     "ifc",
     "bim",
-    "parsing",
-    "structure"
+    "viewer",
+    "3d"
   ],
   "license": "ISC",
   "dependencies": {
     "body-parser": "^2.3.0",
     "express": "^5.2.1",
-    "web-ifc": "^0.0.77"
-  },
-  "devDependencies": {
-    "@thatopen/components": "^3.2.0",
-    "@thatopen/components-front": "^3.2.0",
-    "@thatopen/fragments": "~3.2.0",
-    "supertest": "^7.2.2",
-    "three": "^0.184.0",
-    "vitest": "^2.1.9"
+    "multer": "^2.2.0",
+    "web-ifc": "0.0.66"
   }
 }

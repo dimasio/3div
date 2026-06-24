@@ -9,12 +9,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://esm.sh/three@0.160.0",
-      "three/": "https://esm.sh/three@0.160.0/",
-      "web-ifc": "https://esm.sh/web-ifc@0.0.66",
-      "@thatopen/components": "https://esm.sh/@thatopen/components@2.4.0?deps=three@0.160.0,web-ifc@0.0.66",
-      "@thatopen/fragments": "https://esm.sh/@thatopen/fragments@2.4.0?deps=three@0.160.0",
-      "@thatopen/components-front": "https://esm.sh/@thatopen/components-front@2.4.0?deps=three@0.160.0,@thatopen/components@2.4.0"
+      "three": "./node_modules/three/build/three.module.js",
+      "three/": "./node_modules/three/"
     }
   }
   </script>
@@ -113,6 +109,15 @@
       color: #94a3b8;
       font-size: 12px;
     }
+    
+    @keyframes fade-in {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(20px); }
+    }
+    
+    .animate-fade-in {
+      animation: fade-in 0.3s ease forwards;
+    }
   </style>
 </head>
 <body>
@@ -138,12 +143,17 @@
     <div class="w-1/2 h-full bg-white border-r border-slate-200 flex flex-col">
       <div class="px-4 py-2 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
         <h2 class="text-sm font-medium text-slate-700">3D-модель</h2>
-        <button id="reset-camera-btn" class="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition shadow-sm hover:shadow-md active:scale-95" title="Сбросить вид камеры">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          </svg>
-        </button>
+        <div class="flex gap-2">
+          <button id="reset-camera-btn" class="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition shadow-sm hover:shadow-md active:scale-95" title="Сбросить вид камеры">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </button>
+          <button id="toggle-all-btn" class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition" title="Показать/Скрыть все элементы">
+            👁️ Показать все
+          </button>
+        </div>
       </div>
       <div id="viewer-container" class="flex-1 w-full h-full relative bg-slate-100">
         <div class="absolute inset-0 flex items-center justify-center">

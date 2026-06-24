@@ -23,32 +23,44 @@ export async function initIfcAPI() {
 
 export function buildPropertiesMap(ifcAPI, modelId) {
   const propertiesMap = new Map();
+  let totalRelations = 0;
+  let skippedRelations = 0;
 
   try {
     const allLines = [...ifcAPI.GetAllLines(modelId)];
 
     for (const expressId of allLines) {
-      const element = ifcAPI.GetLine(modelId, expressId);
+      const line = ifcAPI.GetLine(modelId, expressId);
 
-      const typeName = ifcAPI.GetNameFromTypeCode(element.type);
-      if (typeName !== 'IfcRelDefinesByProperties') {
+      // Ищем по наличию GlobalId и RelatedObjects (特指 IfcRelDefinesByProperties)
+      // IFC4 types may have non-standard type codes
+      if (!line || !line.GlobalId || !line.RelatedObjects || !line.RelatingPropertyDefinition) {
         continue;
       }
 
-      if (!element.RelatedObjects || !element.RelatingPropertyDefinition) {
+      // Проверяем, что это именно IfcRelDefinesByProperties
+      // (у других типов с GlobalId обычно нет RelatedObjects + RelatingPropertyDefinition)
+      if (!line.RelatedObjects || !line.RelatingPropertyDefinition) {
         continue;
       }
 
-      const propertySet = element.RelatingPropertyDefinition;
-      if (!propertySet.HasProperties) {
+      totalRelations++;
+
+      // line.RelatingPropertyDefinition это Handle, нужно получить реальный объект
+      const propSetHandle = line.RelatingPropertyDefinition;
+      const propSetLine = ifcAPI.GetLine(modelId, propSetHandle.value);
+
+      if (!propSetLine || !propSetLine.HasProperties) {
+        skippedRelations++;
         continue;
       }
 
-      const setName = propertySet.Name?.value || 'Unnamed';
+      const setName = propSetLine.Name?.value || 'Unnamed';
 
-      for (let j = 0; j < element.RelatedObjects.length; j++) {
-        const relatedObject = element.RelatedObjects[j];
-        const relatedExpressId = relatedObject.oid;
+      for (let j = 0; j < line.RelatedObjects.length; j++) {
+        const relatedObject = line.RelatedObjects[j];
+        // relatedObject это Handle с value (expressId)
+        const relatedExpressId = relatedObject.value;
 
         if (!relatedExpressId) continue;
 
@@ -58,20 +70,23 @@ export function buildPropertiesMap(ifcAPI, modelId) {
           propertiesMap.set(relatedExpressId, elementProps);
         }
 
-        for (let k = 0; k < propertySet.HasProperties.length; k++) {
-          const prop = propertySet.HasProperties[k];
-          const propName = prop.Name?.value || 'Unnamed';
+        // propSetLine.HasProperties это массив Handle
+        for (let k = 0; k < propSetLine.HasProperties.length; k++) {
+          const propHandle = propSetLine.HasProperties[k];
+          const propLine = ifcAPI.GetLine(modelId, propHandle.value);
+
+          const propName = propLine.Name?.value || 'Unnamed';
           const propNameFull = `${setName}.${propName}`;
 
-          if (prop.NominalValue && prop.NominalValue.value !== undefined) {
-            elementProps[propNameFull] = prop.NominalValue.value;
+          if (propLine.NominalValue && propLine.NominalValue.value !== undefined) {
+            elementProps[propNameFull] = propLine.NominalValue.value;
           }
         }
       }
     }
-  } catch (e) {
-    console.error('Ошибка при построении карты свойств:', e);
-  }
+
+    } catch (e) {
+    }
 
   return propertiesMap;
 }
@@ -79,17 +94,71 @@ export function buildPropertiesMap(ifcAPI, modelId) {
 export function extractPosition(ifcAPI, modelId, expressId) {
   try {
     const element = ifcAPI.GetLine(modelId, expressId);
-    if (!element?.ObjectPlacement?.PlacementToReference?.Location?.Coordinates) {
+    if (!element || !element.ObjectPlacement) {
       return { x: 0, y: 0, z: 0 };
     }
 
-    const coords = element.ObjectPlacement.PlacementToReference.Location.Coordinates;
-    return {
-      x: Number(coords[0]) || 0,
-      y: Number(coords[1]) || 0,
-      z: Number(coords[2]) || 0
-    };
+    // Get the ObjectPlacement expressId
+    const placementId = element.ObjectPlacement.value;
+    if (!placementId) {
+      return { x: 0, y: 0, z: 0 };
+    }
+
+    // Recursively traverse the placement hierarchy to sum up coordinates
+    let totalX = 0;
+    let totalY = 0;
+    let totalZ = 0;
+
+    let currentPlacementId = placementId;
+    const MAX_DEPTH = 10; // Prevent infinite loops
+    let depth = 0;
+
+    while (currentPlacementId && depth < MAX_DEPTH) {
+      const placement = ifcAPI.GetLine(modelId, currentPlacementId);
+      if (!placement) {
+        break;
+      }
+
+      // Look for Location.Coordinates
+      // For IfcLocalPlacement, we need to go through:
+      // Placement -> RelativePlacement -> Location -> Coordinates
+      let coords = null;
+
+      if (placement.RelativePlacement) {
+        // This is IfcLocalPlacement - need to get the RelativePlacement object
+        const relPlacement = ifcAPI.GetLine(modelId, placement.RelativePlacement.value);
+        
+        // Then get the Location object
+        if (relPlacement?.Location) {
+          const location = ifcAPI.GetLine(modelId, relPlacement.Location.value);
+          if (location?.Coordinates) {
+            coords = location.Coordinates;
+          }
+        }
+      } else if (placement.Location?.Coordinates) {
+        // This is IfcAxis2Placement3D or similar - coordinates are directly in Location
+        coords = placement.Location.Coordinates;
+      }
+
+      if (coords) {
+        totalX += Number(coords[0].value) || 0;
+        totalY += Number(coords[1].value) || 0;
+        totalZ += Number(coords[2].value) || 0;
+      }
+
+      // For IfcLocalPlacement, follow PlacementRelTo to parent
+      if (placement.PlacementRelTo) {
+        currentPlacementId = placement.PlacementRelTo.value;
+      } else {
+        // No parent placement, stop traversing
+        break;
+      }
+
+      depth++;
+    }
+
+    return { x: totalX, y: totalY, z: totalZ };
   } catch (e) {
-    return { x: 0, y: 0, z: 0 };
+      return { x: 0, y: 0, z: 0 };
   }
 }

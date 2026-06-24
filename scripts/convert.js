@@ -1,7 +1,7 @@
 import { IfcAPI } from 'web-ifc';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, statSync } from 'fs';
 import { initIfcAPI, buildPropertiesMap, extractPosition } from '../src/lib/ifcUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +14,7 @@ const CONFIG = {
   jsonOutput: join(projectRoot, 'public', 'properties.json'),
   typesToExtract: ['IfcWall', 'IfcSlab', 'IfcBeam', 'IfcColumn', 'IfcWindow', 'IfcDoor', 'IfcCurtainWall', 'IfcMember', 'IfcPlate', 'IfcFoundation', 'IfcGrid']
 };
+
 
 function extractGeometryFromWasmHeap(ifcAPI, modelId, expressId) {
   try {
@@ -37,18 +38,50 @@ function extractGeometryFromWasmHeap(ifcAPI, modelId, expressId) {
     const vertexPtr = geometry.GetVertexData();
     const indexPtr = geometry.GetIndexData();
 
-    const vertexCount = vertexDataSize / 4;
-    const indexCount = indexDataSize / 4;
-
     const heapF32 = ifcAPI.wasmModule.HEAPF32;
     const heapU32 = ifcAPI.wasmModule.HEAPU32;
 
+    // GetVertexDataSize() возвращает байты
+    // Для stride 6 (x,y,z,nx,ny,nz) это: numVertices * 6 * 4 байта
     const vertexStart = Math.floor(vertexPtr / 4);
+    const numVertices = Math.floor(vertexDataSize / (6 * 4));
+    
+    // GetIndexDataSize() возвращает байты для Uint32 индексов (4 байта на индекс)
     const indexStart = Math.floor(indexPtr / 4);
+    const indexCount = Math.floor(indexDataSize / 4);
 
-    const vertices = new Float32Array(vertexCount);
-    for (let i = 0; i < vertexCount; i++) {
-      vertices[i] = heapF32[vertexStart + i];
+    const vertices = new Float32Array(numVertices * 3);
+    for (let i = 0; i < numVertices; i++) {
+      const srcIdx = vertexStart + i * 6;
+      let x = heapF32[srcIdx];     // x
+      let y = heapF32[srcIdx + 1]; // y
+      let z = heapF32[srcIdx + 2]; // z
+      
+      // Получаем трансформацию из FlatMesh
+      const transformation = placedGeom.flatTransformation || null;
+      
+      // Применяем трансформацию, если она есть
+      if (transformation && transformation.length === 16) {
+        // Матрица в column-major порядке
+        // [m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33]
+        const m00 = transformation[0], m01 = transformation[1], m02 = transformation[2], m03 = transformation[3];
+        const m10 = transformation[4], m11 = transformation[5], m12 = transformation[6], m13 = transformation[7];
+        const m20 = transformation[8], m21 = transformation[9], m22 = transformation[10], m23 = transformation[11];
+        const m30 = transformation[12], m31 = transformation[13], m32 = transformation[14], m33 = transformation[15];
+        
+        // Умножаем вершину на трансформационную матрицу
+        const tx = m00 * x + m10 * y + m20 * z + m30;
+        const ty = m01 * x + m11 * y + m21 * z + m31;
+        const tz = m02 * x + m12 * y + m22 * z + m32;
+        
+        x = tx;
+        y = ty;
+        z = tz;
+      }
+      
+      vertices[i * 3] = x;
+      vertices[i * 3 + 1] = y;
+      vertices[i * 3 + 2] = z;
     }
 
     const indices = new Uint32Array(indexCount);
@@ -65,64 +98,31 @@ function extractGeometryFromWasmHeap(ifcAPI, modelId, expressId) {
   }
 }
 
-function getAllElementsFiltered(ifcAPI, modelId, typesFilter) {
+function getAllElementsAllTypes(ifcAPI, modelId) {
   const elementsMap = new Map();
   const typeCounts = new Map();
-  const meshData = [];
 
   const allLines = [...ifcAPI.GetAllLines(modelId)];
 
-  let count = 0;
   for (const expressId of allLines) {
     const elementData = ifcAPI.GetLine(modelId, expressId);
 
     if (elementData?.type !== -1) {
       const typeName = ifcAPI.GetNameFromTypeCode(elementData.type);
 
-      if (typesFilter.includes(typeName)) {
-        typeCounts.set(typeName, (typeCounts.get(typeName) || 0) + 1);
+      typeCounts.set(typeName, (typeCounts.get(typeName) || 0) + 1);
 
-        elementsMap.set(expressId, {
-          id: expressId,
-          type: typeName,
-          typeId: elementData.type,
-          name: elementData.Name?.value || '',
-          data: elementData
-        });
-      }
-
-      count++;
-
-      if (count % 10000 === 0) {
-      }
+      elementsMap.set(expressId, {
+        id: expressId,
+        type: typeName,
+        typeId: elementData.type,
+        name: elementData.Name?.value || '',
+        data: elementData
+      });
     }
   }
 
-  let geoCount = 0;
-  let notFoundCount = 0;
-
-  for (const [expressId, element] of elementsMap) {
-    try {
-      const geometry = extractGeometryFromWasmHeap(ifcAPI, modelId, expressId);
-
-      if (geometry) {
-        meshData.push({
-          expressID: expressId,
-          vertices: geometry.vertices,
-          faces: geometry.faces
-        });
-        geoCount++;
-
-        if (geoCount % 1000 === 0) {
-        }
-      } else {
-        notFoundCount++;
-      }
-    } catch (e) {
-    }
-  }
-
-  return { elementsMap, meshData };
+  return { elementsMap, typeCounts };
 }
 
 async function convertIfcToFragments() {
@@ -137,60 +137,82 @@ async function convertIfcToFragments() {
 
   const modelId = ifcAPI.OpenModel(ifcByteArray);
 
-  const { elementsMap, meshData } = getAllElementsFiltered(ifcAPI, modelId, CONFIG.typesToExtract);
+  // Получаем ВСЕ элементы из IFC (без фильтрации по типам)
+  const { elementsMap, typeCounts } = getAllElementsAllTypes(ifcAPI, modelId);
+
 
   const propertiesMap = buildPropertiesMap(ifcAPI, modelId);
 
   const propertiesData = [];
   const geometryData = [];
-  let processed = 0;
-  let elementsWithGeometry = 0;
+  const processedSet = new Set();
+  let geoCount = 0;
+  let noGeoCount = 0;
 
-  for (const mesh of meshData) {
-    const element = elementsMap.get(mesh.expressID) || {
-      id: mesh.expressID,
-      type: 'Unknown',
-      typeId: 0,
-      name: 'Без имени'
-    };
-
-    const position = extractPosition(ifcAPI, modelId, mesh.expressID);
-    const properties = propertiesMap.get(mesh.expressID) || {};
-
-    propertiesData.push({
-      id: mesh.expressID,
-      type: element.type,
-      name: element.name || 'Без имени',
-      position: position,
-      properties: properties
-    });
-
-    geometryData.push({
-      id: mesh.expressID,
-      vertices: mesh.vertices,
-      faces: mesh.faces
-    });
-    elementsWithGeometry++;
-
-    processed++;
-    if (processed % 1000 === 0) {
-    }
-  }
-
+  // Сначала пробуем получить геометрию для ВСЕХ элементов
+  let checked = 0;
   for (const [expressId, element] of elementsMap) {
-    if (!meshData.some(m => m.expressID === expressId)) {
-      const position = extractPosition(ifcAPI, modelId, expressId);
-      const properties = propertiesMap.get(expressId) || {};
-
-      propertiesData.push({
-        id: expressId,
-        type: element.type,
-        name: element.name || 'Без имени',
-        position: position,
-        properties: properties
-      });
+    checked++;
+    
+    try {
+      const geometry = extractGeometryFromWasmHeap(ifcAPI, modelId, expressId);
+      
+      if (geometry) {
+        const position = extractPosition(ifcAPI, modelId, expressId);
+        const properties = propertiesMap.get(expressId) || {};
+        
+        propertiesData.push({
+          id: expressId,
+          type: element.type,
+          name: element.name || 'Без имени',
+          position: position,
+          properties: properties,
+          visible: true  // По умолчанию элементы видимы
+        });
+        
+        geometryData.push({
+          id: expressId,
+          vertices: geometry.vertices,
+          faces: geometry.faces
+        });
+        
+        processedSet.add(expressId);
+        geoCount++;
+        
+      } else {
+        noGeoCount++;
+      }
+    } catch (e) {
+      noGeoCount++;
     }
   }
+
+
+  // Добавляем элементы без геометрии в properties.json (только если они есть)
+  const elementsWithoutGeo = elementsMap.size - geoCount;
+  if (elementsWithoutGeo > 0) {
+    let added = 0;
+    for (const [expressId, element] of elementsMap) {
+      if (!processedSet.has(expressId)) {
+        const position = extractPosition(ifcAPI, modelId, expressId);
+        const properties = propertiesMap.get(expressId) || {};
+        
+        propertiesData.push({
+          id: expressId,
+          type: element.type,
+          name: element.name || 'Без имени',
+          position: position,
+          properties: properties,
+          visible: true
+        });
+        
+        processedSet.add(expressId);
+        added++;
+        
+      }
+    }
+  }
+
 
   writeFileSync(CONFIG.jsonOutput, JSON.stringify(propertiesData, null, 2));
 
@@ -228,9 +250,9 @@ async function convertIfcToFragments() {
   writeFileSync(CONFIG.fragOutput, Buffer.from(buffer));
 
   ifcAPI.CloseModel(modelId);
+
 }
 
 convertIfcToFragments().catch((err) => {
-  console.error('Ошибка конвертации:', err);
   process.exit(1);
 });

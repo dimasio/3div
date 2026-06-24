@@ -1,4 +1,4 @@
-import { IfcAPI, IFCWALL, IFCSLAB, IFCBEAM, IFCCOLUMN, IFCGRID } from 'web-ifc';
+import { IfcAPI } from 'web-ifc';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -7,9 +7,13 @@ import { initIfcAPI, buildPropertiesMap, extractPosition } from './ifcUtils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const MAX_ELEMENTS = 0; // 0 = без ограничения (загружать все элементы)
+
 function getAllElements(ifcAPI, modelId, maxElements = 0) {
   const elementsMap = new Map();
-  const typeCounts = new Map();
+
+  const limit = maxElements > 0 ? maxElements : MAX_ELEMENTS;
+  const hasLimit = limit > 0; // Проверяем, есть ли вообще лимит
 
   try {
     const allLines = [...ifcAPI.GetAllLines(modelId)];
@@ -19,29 +23,21 @@ function getAllElements(ifcAPI, modelId, maxElements = 0) {
       const elementData = ifcAPI.GetLine(modelId, expressId);
 
       if (elementData && elementData.type !== -1) {
-        const typeName = ifcAPI.GetNameFromTypeCode(elementData.type);
-
-        typeCounts.set(typeName, (typeCounts.get(typeName) || 0) + 1);
-
         elementsMap.set(expressId, {
           id: expressId,
-          type: typeName,
-          typeId: elementData.type,
+          type: elementData.type,
           data: elementData
         });
 
         count++;
 
-        if (maxElements > 0 && count >= maxElements) {
-          break;
-        }
-
-        if (count % 5000 === 0) {
+        if (hasLimit && count >= limit) {
+                  break;
         }
       }
     }
   } catch (e) {
-  }
+    }
 
   return elementsMap;
 }
@@ -68,17 +64,19 @@ function getProperties(ifcAPI, expressId, modelId) {
   const properties = {};
 
   try {
-    const defines = ifcAPI.GetByType(modelId, 23);
+    const allLines = [...ifcAPI.GetAllLines(modelId)];
 
-    for (let i = 0; i < defines.size(); i++) {
-      const relationId = defines.get(i);
-      const relation = ifcAPI.GetLine(modelId, relationId);
+    for (const lineId of allLines) {
+      const line = ifcAPI.GetLine(modelId, lineId);
 
-      if (!relation || !relation.RelatedObjects) continue;
+      // 23 = IfcRelDefinesByProperties
+      if (!line || line.type !== 23) continue;
+
+      if (!line.RelatedObjects || !line.RelatingPropertyDefinition) continue;
 
       let isRelated = false;
-      for (let j = 0; j < relation.RelatedObjects.length; j++) {
-        if (relation.RelatedObjects[j].oid === expressId) {
+      for (let j = 0; j < line.RelatedObjects.length; j++) {
+        if (line.RelatedObjects[j].oid === expressId) {
           isRelated = true;
           break;
         }
@@ -86,7 +84,7 @@ function getProperties(ifcAPI, expressId, modelId) {
 
       if (!isRelated) continue;
 
-      const propertySet = relation.RelatingPropertyDefinition;
+      const propertySet = line.RelatingPropertyDefinition;
       if (!propertySet || !propertySet.HasProperties) continue;
 
       const setName = propertySet.Name?.value || 'Unnamed';
@@ -118,7 +116,7 @@ async function extractIfc(filePath) {
   const structuralElements = [];
   const underlays = [];
 
-  const elementsMap = getAllElements(ifcAPI, modelId, 0);
+  const elementsMap = getAllElements(ifcAPI, modelId, MAX_ELEMENTS);
 
   const propertiesMap = buildPropertiesMap(ifcAPI, modelId);
 
@@ -136,6 +134,7 @@ async function extractIfc(filePath) {
   }
 
   ifcAPI.CloseModel(modelId);
+
 
   return {
     structuralElements,

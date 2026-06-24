@@ -1,79 +1,29 @@
 import * as THREE from 'three';
-import { Components, Worlds, SimpleScene, SimpleRenderer, SimpleCamera, FragmentsManager } from '@thatopen/components';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+// === Глобальные переменные Three.js ===
+let scene = null;
+let camera = null;
+let renderer = null;
+let controls = null;
+let currentModelGroup = null;
+let resizeObserver = null;
+
+// === Demand rendering control ===
+let isRendering = true;
+
+// === Индекс мешей и подсветка ===
+let meshIndex = new Map();
+let highlightedMesh = null;
+let originalMaterial = null;
+
+// === Прелоадер ===
 function showPreloader(message = 'Загрузка модулей...') {
   const preloader = document.getElementById('preloader');
   const text = document.getElementById('preloader-text');
   if (preloader && text) {
     text.textContent = message;
     preloader.classList.remove('hidden');
-  }
-}
-
-function showWebGLInstructions() {
-  const viewerContainer = document.getElementById('viewer-container');
-  if (viewerContainer) {
-    viewerContainer.innerHTML = `
-      <div class="absolute inset-0 flex items-center justify-center bg-slate-100 p-8">
-        <div class="max-w-2xl bg-white rounded-lg shadow-lg p-6 text-slate-800">
-          <h2 class="text-2xl font-bold mb-4 text-red-600">Ошибка: WebGL не поддерживается</h2>
-          
-          <div class="mb-4">
-            <h3 class="font-semibold mb-2">Причины:</h3>
-            <ul class="list-disc pl-5 space-y-1">
-              <li>WebGL отключен в настройках браузера</li>
-              <li>Отсутствует поддержка WebGL вашим устройством</li>
-              <li>Используется виртуальный драйвер (SwiftShader)</li>
-              <li>Устаревшие драйверы видеокарты</li>
-            </ul>
-          </div>
-          
-          <div class="mb-4">
-            <h3 class="font-semibold mb-2">Решения:</h3>
-            <ol class="list-decimal pl-5 space-y-2">
-              <li class="mb-1">
-                <strong>Проверить WebGL в Chrome:</strong><br>
-                В адресной строке введите: <code class="bg-slate-100 px-2 py-1 rounded">chrome://gpu</code><br>
-                Проверьте, что "WebGL" и "2D Canvas" имеют статус "hardware accelerated"
-              </li>
-              <li class="mb-1">
-                <strong>Включить WebGL вручную (Chrome/Edge):</strong><br>
-                1. Откройте <code class="bg-slate-100 px-2 py-1 rounded">chrome://flags</code><br>
-                2. Найдите "Override software rendering list"<br>
-                3. Включите этот флаг<br>
-                4. Перезапустите браузер
-              </li>
-              <li class="mb-1">
-                <strong>Обновить драйверы видеокарты:</strong><br>
-                - NVIDIA: <a href="https://www.nvidia.com/Download/index.aspx" class="text-blue-600 underline" target="_blank">www.nvidia.com</a><br>
-                - AMD: <a href="https://www.amd.com/en/support" class="text-blue-600 underline" target="_blank">www.amd.com</a><br>
-                - Intel: <a href="https://www.intel.com/content/www/us/en/download-center/home.html" class="text-blue-600 underline" target="_blank">www.intel.com</a>
-              </li>
-              <li class="mb-1">
-                <strong>Попробовать другой браузер:</strong><br>
-                Safari (на Mac), Firefox или Edge
-              </li>
-            </ol>
-          </div>
-          
-          <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-            <p class="text-sm text-yellow-700">
-              <strong>Примечание:</strong> После внесения изменений в настройки браузера, 
-              обновите страницу (Ctrl+R или Cmd+R).
-            </p>
-          </div>
-          
-          <div class="flex gap-2">
-            <button onclick="location.reload()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
-              Обновить страницу
-            </button>
-            <a href="https://get.webgl.org/" target="_blank" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
-              Узнать больше о WebGL
-            </a>
-          </div>
-        </div>
-      </div>
-    `;
   }
 }
 
@@ -89,14 +39,13 @@ function hidePreloader() {
   if (preloader) preloader.classList.add('hidden');
 }
 
+// === DOM элементы ===
 const viewerContainer = document.getElementById('viewer-container');
 const gridContainer = document.getElementById('grid-container');
 const uploadBtn = document.getElementById('upload-btn');
 const fileInput = document.getElementById('file-input');
 
-let components = null;
-let worlds = null;
-let world = null;
+// === ag-Grid ===
 let dataRows = [];
 let gridApi = null;
 let gridOptions = null;
@@ -104,8 +53,97 @@ let currentModelId = null;
 let isPaginationLoading = false;
 let isChangingPageSize = false;
 let resetCameraBtn = null;
+let toggleAllBtn = null;
+
+// === UI статусы загрузки ===
+let isUploading = false;
+let statusMessageEl = null;
+let progressBarEl = null;
+
+function createStatusElement() {
+  const existing = document.getElementById('upload-status');
+  if (existing) return existing;
+  
+  const statusEl = document.createElement('div');
+  statusEl.id = 'upload-status';
+  statusEl.className = 'px-4 py-2 bg-blue-50 border-b border-blue-200';
+  statusEl.innerHTML = `
+    <div class="flex items-center gap-3 text-sm text-slate-700">
+      <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <span id="status-text">Готов к загрузке</span>
+    </div>
+    <div id="progress-bar" class="w-full h-1 bg-slate-200 mt-2 rounded overflow-hidden hidden">
+      <div id="progress-fill" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div>
+    </div>
+  `;
+  
+  const header = document.querySelector('.bg-slate-50:first-child');
+  if (header) {
+    header.parentNode.insertBefore(statusEl, header.nextSibling);
+  }
+  
+  return statusEl;
+}
+
+function updateStatus(message, progress = null, isError = false) {
+  const textEl = document.getElementById('status-text');
+  const progressEl = document.getElementById('progress-bar');
+  const fillEl = document.getElementById('progress-fill');
+  
+  if (textEl) {
+    textEl.textContent = message;
+    textEl.className = isError 
+      ? 'text-red-600 font-medium' 
+      : 'text-slate-700';
+  }
+  
+  if (progressEl && fillEl) {
+    if (progress !== null) {
+      progressEl.classList.remove('hidden');
+      fillEl.style.width = `${progress}%`;
+    } else {
+      progressEl.classList.add('hidden');
+    }
+  }
+}
+
+function clearStatus() {
+  const statusEl = document.getElementById('upload-status');
+  if (statusEl) {
+    statusEl.remove();
+  }
+}
+
+function showUIError(message) {
+  const container = document.createElement('div');
+  container.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-4 py-3 rounded shadow-lg z-50 flex items-center gap-3 animate-fade-in';
+  container.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+    </svg>
+    <span>${message}</span>
+  `;
+  
+  document.body.appendChild(container);
+  setTimeout(() => {
+    container.style.opacity = '0';
+    setTimeout(() => container.remove(), 300);
+  }, 4000);
+}
 
 const columnDefs = [
+  {
+    field: 'visible',
+    headerName: '👁️',
+    width: 50,
+    cellRenderer: (params) => {
+      const checked = params.value ? 'checked' : '';
+      return `<input type="checkbox" ${checked} data-id="${params.data.id}" class="element-checkbox">`;
+    },
+    cellStyle: { display: 'flex', justifyContent: 'center', alignItems: 'center' },
+    sortable: false,
+    filter: false
+  },
   {
     field: 'id',
     headerName: 'ID',
@@ -131,6 +169,23 @@ const columnDefs = [
   }
 ];
 
+function onCellClicked(event) {
+  if (event.event && event.event.target && event.event.target.classList.contains('element-checkbox')) {
+    const elementId = event.data.id;
+    const isChecked = event.event.target.checked;
+    
+    event.api.updateRowData({
+      update: [{ id: elementId, visible: isChecked }],
+      updateMulti: false
+    });
+    
+    const mesh = meshIndex.get(elementId);
+    if (mesh) {
+      mesh.visible = isChecked;
+    }
+  }
+}
+
 function initGrid() {
   gridOptions = {
     columnDefs: columnDefs,
@@ -144,23 +199,21 @@ function initGrid() {
     rowSelection: 'single',
     pagination: true,
     paginationPageSize: 50,
-    paginationPageSizeSelector: [10, 20, 50, 100, 200, 500, 1000, 'Все'],
+    paginationPageSizeSelector: [10, 20, 50, 100, 200, 500, 1000],
+    onCellClicked: onCellClicked,
     onRowClicked: (event) => {
       const rowData = event.data;
       if (rowData) {
         highlightElement(rowData.id);
       }
     },
-        onPaginationChanged: (event) => {
-      // При изменении размера страницы обновляем только pageSize без повторной загрузки данных
+    onPaginationChanged: (event) => {
       if (gridApi && !isPaginationLoading && !isChangingPageSize) {
         isChangingPageSize = true;
-        
         const pageSize = gridApi.paginationGetPageSize();
         if (pageSize) {
           gridApi.updateGridOptions({ paginationPageSize: pageSize });
         }
-        
         setTimeout(() => {
           isChangingPageSize = false;
         }, 0);
@@ -171,70 +224,22 @@ function initGrid() {
   gridApi = agGrid.createGrid(gridContainer, gridOptions);
   
   if (!gridApi) {
-    console.error('Не удалось получить gridApi');
     return;
   }
   
   loadGridData();
 }
 
-async function loadGridDataForPage(page, pageSize) {
-  if (!gridApi) {
-    console.error('gridApi не инициализирован');
-    return;
-  }
-  
-  if (!gridContainer) {
-    console.error('gridContainer не найден');
-    return;
-  }
-  
-  try {
-    isPaginationLoading = true;
-    
-    const response = await fetch(`/api/model/data?page=${page}&pageSize=${pageSize}`);
-    const data = await response.json();
-    
-    if (data.allElements && data.allElements.length > 0) {
-      const rows = data.allElements.map(el => ({
-        id: el.id,
-        type: el.type,
-        name: el.name || 'Без имени'
-      }));
-      
-      dataRows = rows;
-      gridApi.updateGridOptions({ rowData: rows, paginationPageSize: pageSize });
-      
-      console.log(`Загружено ${rows.length} элементов (страница ${page})`);
-    }
-    
-    setTimeout(() => {
-      isPaginationLoading = false;
-    }, 0);
-  } catch (err) {
-    isPaginationLoading = false;
-    console.error('Ошибка загрузки данных страницы:', err);
-  }
-}
-
 async function loadGridData() {
-  if (!gridApi) {
-    console.error('gridApi не инициализирован');
-    return;
-  }
-  
-  if (!gridContainer) {
-    console.error('gridContainer не найден');
+  if (!gridApi || !gridContainer) {
     return;
   }
   
   try {
-    // При первой загрузке загружаем все элементы (pageSize = 'Все')
     isPaginationLoading = true;
     const currentPage = 1;
-    const fetchPageSize = 'Все';
+    const fetchPageSize = 50;
     
-    // Запрашиваем элементы для отображения (с пагинацией)
     const response = await fetch(`/api/model/data?page=${currentPage}&pageSize=${fetchPageSize}`);
     const data = await response.json();
     
@@ -242,24 +247,18 @@ async function loadGridData() {
       const rows = data.allElements.map(el => ({
         id: el.id,
         type: el.type,
-        name: el.name || 'Без имени'
+        name: el.name || 'Без имени',
+        visible: el.visible !== undefined ? el.visible : true
       }));
       
       dataRows = rows;
-      gridApi.updateGridOptions({ rowData: rows, paginationPageSize: rows.length });
-      
-      console.log(`Загружено ${rows.length} элементов (страница ${currentPage})`);
-      
-      if (gridContainer.classList) {
-        gridContainer.classList.remove('flex', 'items-center', 'justify-center');
-      }
+      gridApi.updateGridOptions({ rowData: rows, paginationPageSize: fetchPageSize });
     } else {
       if (gridContainer) {
         gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-slate-500"><p>Нет данных для отображения</p></div>';
       }
     }
   } catch (err) {
-    console.error('Ошибка загрузки данных:', err);
     if (gridContainer) {
       gridContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500"><p>Ошибка загрузки данных</p></div>';
     }
@@ -271,230 +270,372 @@ async function loadGridData() {
 }
 
 function highlightElement(elementId) {
-  if (!components) return;
+  if (highlightedMesh && originalMaterial) {
+    highlightedMesh.material = originalMaterial;
+    highlightedMesh = null;
+    originalMaterial = null;
+  }
   
-  try {
-    const fragManager = components.get(FragmentsManager);
-    if (fragManager) {
-      fragManager.highlight({ color: [1, 0.5, 0, 1] }, new Set([elementId]));
-      console.log(`Выделен элемент ID: ${elementId}`);
-    } else {
-      console.warn('FragmentsManager не найден в components');
-    }
-  } catch (e) {
-    console.error('Ошибка подсветки:', e);
+  const mesh = meshIndex.get(elementId);
+  if (!mesh) {
+    return;
+  }
+  
+  highlightedMesh = mesh;
+  originalMaterial = mesh.material;
+  
+  const highlightMaterial = originalMaterial.clone();
+  highlightMaterial.color.setHex(0xffff00);
+  highlightMaterial.transparent = true;
+  highlightMaterial.opacity = 0.5;
+  highlightMaterial.emissive = new THREE.Color(0xffff00);
+  highlightMaterial.emissiveIntensity = 0.3;
+  
+  mesh.material = highlightMaterial;
+}
+
+function showWebGLInstructions() {
+  const container = document.getElementById('viewer-container');
+  if (container) {
+    container.innerHTML = '<div class="flex items-center justify-center h-full text-red-500"><p>WebGL не поддерживается. Пожалуйста, используйте современный браузер.</p></div>';
   }
 }
 
 function checkWebGLSupport() {
-  console.log('Проверка WebGL поддержки...');
-  
   try {
     const canvas = document.createElement('canvas');
-    
-    console.log('canvas.getContext("webgl")...');
-    let gl = canvas.getContext('webgl');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
     if (gl) {
-      console.log('WebGL контекст создан успешно (webgl)');
-      console.log('  Version:', gl.getParameter(gl.VERSION));
-      console.log('  Vendor:', gl.getParameter(gl.VENDOR));
-      console.log('  Renderer:', gl.getParameter(gl.RENDERER));
       return true;
     }
-    
-    console.log('canvas.getContext("experimental-webgl")...');
-    gl = canvas.getContext('experimental-webgl');
-    if (gl) {
-      console.log('WebGL контекст создан успешно (experimental-webgl)');
-      return true;
-    }
-    
-    console.warn('Не удалось получить webgl контекст');
   } catch (e) {
-    console.warn('Исключение при проверке WebGL:', e.message);
   }
   
-  try {
-    console.log('Попытка создания Three.js WebGLRenderer...');
-    const testCanvas = document.createElement('canvas');
-    const testRenderer = new THREE.WebGLRenderer({ 
-      canvas: testCanvas, 
-      antialias: true,
-      preserveDrawingBuffer: true
-    });
-    
-    console.log('Three.js WebGLRenderer создан успешно');
-    console.log('  Renderer:', testRenderer.info.renderer);
-    
-    testRenderer.dispose();
-    
-    return true;
-  } catch (e) {
-    console.warn('Three.js WebGLRenderer не создался:', e.message);
-  }
-  
-  console.warn('WebGL не поддерживается');
   return false;
 }
 
-async function initViewer() {
-  const originalError = console.error;
+function initViewer() {
+  const container = document.getElementById('viewer-container');
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = '';
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf3f4f6);
+
+  const aspect = container.clientWidth / container.clientHeight;
+  camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+  camera.position.set(15, 15, 15);
+  camera.lookAt(0, 0, 0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.target.set(0, 0, 0);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  directionalLight.position.set(10, 20, 10);
+  scene.add(directionalLight);
+
+  const gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0xcccccc);
+  scene.add(gridHelper);
   
-  console.error = function(...args) {
-    const message = args.join(' ');
-    if (message.includes('WebGL context') || message.includes('Could not create')) {
-      return;
-    }
-    originalError.apply(console, args);
-  };
-  
-  try {
-    // === НОВЫЙ КОД ИНИЦИАЛИЗАЦИИ ===
-    const container = document.getElementById('viewer-container');
-    if (!container) {
-      console.error("❌ Контейнер #viewer-container не найден!");
-      return;
-    }
-
-    // Очищаем контейнер от текста "3D-вьювер загружается..."
-    container.innerHTML = '';
-
-    components = new Components();
-    worlds = components.get(Worlds);
-
-    world = worlds.create();
-    world.scene = new SimpleScene(components);
-    world.renderer = new SimpleRenderer(components, container);
-    world.camera = new SimpleCamera(components);
-
-    // 1. Инициализация (запуск render loop)
-    components.init();
-
-    // 2. Включаем дефолтную настройку
-    world.scene.setup();
-
-    // 3. ПРИНУДИТЕЛЬНО создаём базовый свет и сетку (если setup() не сработал)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    world.scene.three.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(10, 20, 10);
-    world.scene.three.add(directionalLight);
-
-    const gridHelper = new THREE.GridHelper(50, 50);
-    world.scene.three.add(gridHelper);
-
-    // Делаем этот мир активным (ОБЯЗАТЕЛЬНО ДЛЯ V3.X)
-    world.scene.three.background = new THREE.Color(0xf3f4f6); // Светло-серый фон
-    world.camera.controls.setLookAt(15, 15, 15, 0, 0, 0);
-
-    console.log('3D-вьювер успешно инициализирован');
-
-    // Загружаем модель
-    await loadIFCModel();
-    
-  } catch (error) {
-    console.error = originalError;
-    throw error;
+  if (resizeObserver) {
+    resizeObserver.disconnect();
   }
   
-  console.error = originalError;
+  let resizeTimeout = null;
+  resizeObserver = new ResizeObserver((entries) => {
+    if (resizeTimeout) {
+      clearTimeout(resizeTimeout);
+    }
+    
+    resizeTimeout = setTimeout(() => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        const height = entry.contentRect.height;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+      }
+    }, 100);
+  });
+  
+  resizeObserver.observe(container);
+
+  setRenderMode(true);
+  animate();
+}
+
+function setRenderMode(mode) {
+  isRendering = mode;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  
+  if (isRendering) {
+    if (controls) controls.update();
+    if (scene && renderer) renderer.render(scene, camera);
+  }
+}
+
+function clearOldModel() {
+  if (currentModelGroup) {
+    scene.remove(currentModelGroup);
+    
+    currentModelGroup.traverse((child) => {
+      if (child.isMesh) {
+        if (child.geometry) {
+          child.geometry.dispose();
+        }
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(mat => mat.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      }
+    });
+    
+    currentModelGroup = null;
+  }
+  
+  meshIndex.clear();
+  highlightedMesh = null;
+  originalMaterial = null;
+  
+  setRenderMode(false);
 }
 
 async function loadIFCModel() {
+  showPreloader('Загрузка 3D-модели...');
+  
   try {
-    console.log("Скачиваем бинарный файл .frag с сервера...");
+    clearOldModel();
+    
     const response = await fetch('/api/model/fragments');
     
-    if (!response.ok) throw new Error(`Файл не найден (статус ${response.status})`);
-    
-    const data = await response.arrayBuffer();
-    const buffer = new Uint8Array(data);
-    
-    console.log("Загружаем геометрию...");
-    const fragments = components.get(FragmentsManager);
-    const model = await fragments.load(buffer);
-    
-    // В v3.x model - это FragmentsGroup (наследник THREE.Group)
-    world.scene.three.add(model);
-
-    // Для верности добавляем все дочерние меши в сцену напрямую
-    if (model.children && model.children.length > 0) {
-      model.children.forEach(child => world.scene.three.add(child));
+    if (!response.ok) {
+      if (response.status === 404) {
+        hidePreloader();
+        return;
+      }
+      throw new Error(`Ошибка загрузки модели: ${response.status} ${response.statusText}`);
     }
-
-    // Принудительно обновляем матрицы для правильного расчета Bounding Box
-    world.scene.three.updateMatrixWorld(true);
-
-    // Вычисляем реальные границы модели и фокусируем камеру
-    if (world.camera && world.camera.controls) {
-      setTimeout(() => {
-        try {
-          const box = new THREE.Box3().setFromObject(model);
-          
-          // Если коробка валидная (не бесконечная), фокусируемся на ней
-          if (!box.isEmpty()) {
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            
-            // Отодвигаем камеру на расстояние, чтобы модель влезла в экран
-            world.camera.controls.setLookAt(
-              center.x + maxDim, center.y + maxDim, center.z + maxDim, // Позиция камеры
-              center.x, center.y, center.z, // Куда смотреть
-              true // Анимация
-            );
-          } else {
-            world.camera.controls.fitToSphere(model, true);
-          }
-          console.log("✅ Камера сфокусирована на модели!");
-        } catch (e) {
-          console.log("⚠️ Не удалось сфокусировать камеру:", e.message);
+    
+    const arrayBuffer = await response.arrayBuffer();
+    
+    const dataView = new DataView(arrayBuffer);
+    let offset = 0;
+    
+    const geometryCount = dataView.getUint32(offset, true);
+    offset += 4;
+    
+    currentModelGroup = new THREE.Group();
+    
+    for (let i = 0; i < geometryCount; i++) {
+      if (offset + 8 > dataView.byteLength) {
+        break;
+      }
+      
+      const id = dataView.getUint32(offset, true);
+      offset += 4;
+      
+      const vertexCountFloats = dataView.getUint32(offset, true);
+      offset += 4;
+      
+      if (vertexCountFloats === 0 || vertexCountFloats % 3 !== 0) {
+        if (offset + 4 > dataView.byteLength) {
+          break;
         }
-      }, 100); // Небольшая пауза для отрисовки
+        const faceCountSkip = dataView.getUint32(offset, true);
+        offset += 4;
+        if (offset + faceCountSkip * 4 > dataView.byteLength) {
+          break;
+        }
+        offset += faceCountSkip * 4;
+        continue;
+      }
+      
+      if (offset + vertexCountFloats * 4 > dataView.byteLength) {
+        break;
+      }
+      
+      const numVertices = vertexCountFloats / 3;
+      const vertices = new Float32Array(vertexCountFloats);
+      for (let v = 0; v < vertexCountFloats; v++) {
+        vertices[v] = dataView.getFloat32(offset, true);
+        offset += 4;
+      }
+      
+      if (offset + 4 > dataView.byteLength) {
+        break;
+      }
+      
+      const faceCount = dataView.getUint32(offset, true);
+      offset += 4;
+      
+      if (faceCount > 1000000) {
+      }
+      
+      if (offset + faceCount * 4 > dataView.byteLength) {
+        break;
+      }
+      
+      const indices = new Uint32Array(faceCount);
+      for (let f = 0; f < faceCount; f++) {
+        indices[f] = dataView.getUint32(offset, true);
+        offset += 4;
+      }
+      
+      const maxIndex = indices.length > 0 ? Math.max(...indices) : 0;
+      const minIndex = indices.length > 0 ? Math.min(...indices) : 0;
+      
+      if (maxIndex >= numVertices) {
+      }
+      
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      
+      geometry.computeVertexNormals();
+      
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xcccccc,
+        roughness: 0.7,
+        metalness: 0.1,
+        side: THREE.DoubleSide
+      });
+      
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.expressId = id;
+      
+      meshIndex.set(id, mesh);
+      
+      currentModelGroup.add(mesh);
+      
+      if (i % 10 === 0) {
+        updatePreloaderProgress('Загрузка геометрии...', `${Math.round((i / geometryCount) * 100)}%`);
+      }
     }
+    
+    scene.add(currentModelGroup);
+    
+    const box = new THREE.Box3().setFromObject(currentModelGroup);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    
+    if (!box.isEmpty()) {
+      controls.target.copy(center);
+      controls.update();
+      
+      const distance = maxDim * 1.5;
+      const newPos = new THREE.Vector3(
+        center.x + distance * 0.5,
+        center.y + distance * 0.8,
+        center.z + distance * 0.5
+      );
+      camera.position.copy(newPos);
+      camera.lookAt(center);
+      camera.updateProjectionMatrix();
+      
+      controls.target.copy(center);
+      controls.update();
+    }
+    
+    updatePreloaderProgress('Загрузка завершена...', '100%');
+    
   } catch (error) {
-    console.error("❌ Ошибка загрузки 3D модели:", error);
+    showUIError(`Ошибка загрузки модели: ${error.message}`);
+  } finally {
+    setTimeout(() => {
+      hidePreloader();
+      setRenderMode(true);
+    }, 300);
   }
 }
 
 async function uploadFile(file) {
+  if (isUploading) {
+    return;
+  }
+  
+  isUploading = true;
+  
+  if (!statusMessageEl) {
+    statusMessageEl = createStatusElement();
+  }
+  
   try {
-    const text = await file.text();
+    updateStatus('Загрузка файла на сервер...', null);
+    
+    const formData = new FormData();
+    formData.append('file', file);
     
     const response = await fetch('/api/upload', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain'
-      },
-      body: text
+      body: formData
     });
     
     const result = await response.json();
     
-    if (result.success) {
-      console.log(`Файл загружен: ${result.structuralElements.length} конструктивных элементов`);
-      
-      loadGridData();
-      
-      await loadIFCModel();
-      
-      if (components) {
-        try {
-          const fragManager = components.get(FragmentsManager);
-          if (fragManager) {
-            fragManager.resetHighlight(new Set());
-          }
-        } catch (e) {
-          console.log('Не удалось сбросить выделение');
-        }
-      }
-    } else {
-      throw new Error(result.error || 'Неизвестная ошибка');
+    if (!response.ok) {
+      throw new Error(result.error || 'Ошибка загрузки файла');
     }
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Неизвестная ошибка загрузки');
+    }
+    
+    updateStatus('Конвертация IFC в 3D-геометрию...', null);
+    
+    const convertResponse = await fetch('/api/convert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ifcFilePath: `uploads/${result.fileName}` })
+    });
+    
+    const convertResult = await convertResponse.json();
+    
+    if (!convertResponse.ok) {
+      const errorMsg = convertResult.error || 'Ошибка конвертации';
+      const details = convertResult.details || convertResult.stdout || convertResult.stderr || '';
+      throw new Error(`${errorMsg}${details ? ': ' + details : ''}`);
+    }
+    
+    updateStatus('Обновление модели и таблицы...', null);
+    
+    clearOldModel();
+    await loadIFCModel();
+    await loadGridData();
+    
+    updateStatus('Готово!', 100);
+    setTimeout(() => {
+      clearStatus();
+      isUploading = false;
+    }, 2000);
+    
   } catch (error) {
-    console.error('Ошибка загрузки файла:', error);
-    alert(`Ошибка при загрузке файла: ${error.message}`);
+    updateStatus(`Ошибка: ${error.message}`, null, true);
+    showUIError(`Ошибка: ${error.message}`);
+    isUploading = false;
+    
+    setTimeout(() => {
+      clearStatus();
+    }, 3000);
   }
 }
 
@@ -505,13 +646,11 @@ uploadBtn.addEventListener('click', () => {
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) {
-    console.log('Загрузка файла:', file.name);
     uploadFile(file);
     fileInput.value = '';
   }
 });
 
-// Обработчик кнопки сброса камеры
 resetCameraBtn = document.getElementById('reset-camera-btn');
 if (resetCameraBtn) {
   resetCameraBtn.addEventListener('click', () => {
@@ -519,15 +658,46 @@ if (resetCameraBtn) {
   });
 }
 
+toggleAllBtn = document.getElementById('toggle-all-btn');
+if (toggleAllBtn) {
+  let allVisible = true;
+  toggleAllBtn.addEventListener('click', () => {
+    allVisible = !allVisible;
+    toggleAllBtn.textContent = allVisible ? '👁️ Показать все' : '❌ Скрыть все';
+    toggleAllBtn.className = allVisible 
+      ? 'px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition' 
+      : 'px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition';
+    
+    updateElementVisibility(allVisible);
+  });
+}
+
+function updateElementVisibility(show) {
+  if (!gridApi) return;
+  
+  const rows = gridApi.getModel().getRows();
+  for (const rowNode of rows) {
+    const elementId = rowNode.data.id;
+    rowNode.setDataValue('visible', show);
+    
+    const mesh = meshIndex.get(elementId);
+    if (mesh) {
+      mesh.visible = show;
+    }
+  }
+}
+
 function resetCamera() {
-  if (!world || !world.camera || !world.camera.controls) {
-    console.warn('Камера не инициализирована');
+  if (!controls || !camera) {
     return;
   }
   
-  // Возвращаем камеру к начальной позиции (15, 15, 15) смотрит на (0, 0, 0)
-  world.camera.controls.setLookAt(15, 15, 15, 0, 0, 0, true);
-  console.log('Камера сброшена на начальную позицию');
+  controls.target.set(0, 0, 0);
+  controls.update();
+  
+  camera.position.set(15, 15, 15);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
 }
 
 window.addEventListener('load', async () => {
@@ -535,19 +705,24 @@ window.addEventListener('load', async () => {
   updatePreloaderProgress('Загрузка модулей...', '0%');
   
   try {
-    console.log('IFC Viewer MVP загружен');
-    
     updatePreloaderProgress('Загрузка таблицы данных...', '30%');
     initGrid();
     
-    updatePreloaderProgress('Инициализация 3D-вьювера...', '60%');
-    await initViewer();
+    updatePreloaderProgress('Проверка WebGL...', '50%');
+    if (!checkWebGLSupport()) {
+      showWebGLInstructions();
+    }
+    
+    updatePreloaderProgress('Инициализация 3D-вьювера...', '70%');
+    initViewer();
+    
+    updatePreloaderProgress('Загрузка модели...', '80%');
+    loadIFCModel();
     
     updatePreloaderProgress('Готово!', '100%');
     setTimeout(hidePreloader, 500);
     
   } catch (error) {
-    console.error('Ошибка инициализации:', error);
     hidePreloader();
     alert(`Ошибка инициализации: ${error.message}`);
   }
